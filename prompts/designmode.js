@@ -356,11 +356,37 @@ const PHASE1_GREETING = `欢迎来到**世界卡设计工坊**！
 //    通过 PHASE2_STAGE_PROMPTS_MINIMAL / _SIMPLIFIED / _LIGHT 提供简化版本
 // ============================================
 
+// 把 P1 阶段完整对话原文序列化为 prompt 文本（含三道清洗）。
+// 用途：所有 P2 stage prompt 末尾追加「P1 创作者完整对话原文」section。
+// 与 _buildDesignQnaModule（含 2000→200 字截断）独立——后者是运行时档案，本函数不截断。
+function formatP1ChatHistoryForPrompt(history) {
+  if (!Array.isArray(history) || !history.length) return '（无对话原文）';
+  const lines = [];
+  for (const msg of history) {
+    if (!msg || typeof msg !== 'object') continue;
+    if (msg.isError === true) continue;
+    const text = typeof msg.text === 'string' ? msg.text.trim() : '';
+    if (!text) continue;
+    if (msg.sender === 'ai' && text.startsWith('欢迎来到**世界卡设计工坊**')) continue;
+    if (msg.sender === 'user') {
+      lines.push(`【创作者】${text}`);
+    } else if (msg.sender === 'ai') {
+      let cleaned = text;
+      if (msg.frameworkReady === true) {
+        const idx = cleaned.indexOf('\n\n---\n\n');
+        if (idx > 0) cleaned = cleaned.slice(0, idx).trim();
+      }
+      if (cleaned) lines.push(`【设计助手】${cleaned}`);
+    }
+  }
+  return lines.length ? lines.join('\n\n') : '（无对话原文）';
+}
+
 const PHASE2_STAGE_PROMPTS = [
   // ========================================
   // Stage 1: 世界设定 (World Setting)
   // ========================================
-  (p1Output, s3) => `你是一个游戏世界观设计师。请根据以下世界框架描述，生成结构化的世界设定。
+  (p1Output, s3, p1ChatHistory) => `你是一个游戏世界观设计师。请根据以下世界框架描述，生成结构化的世界设定。
 
 ## 世界框架（由用户提供）
 ${p1Output.context_world}
@@ -437,12 +463,19 @@ ${s3?.statusText || '（使用默认配置）'}
 请确保世界设定中的术语与上述字段一致：
 - 货币描述使用字段中标注的货币名称（如字段标注"信用点"，经济描述中使用"信用点"而非其他货币名）
 - 纪年描述使用字段中标注的时间体系（如字段标注"星历"，历史纪年使用"星历"而非"公元"）
-- 地理层级使用字段中标注的地点称谓（如字段标注"行省"，使用"行省"而非"国家"）`,
+- 地理层级使用字段中标注的地点称谓（如字段标注"行省"，使用"行省"而非"国家"）
+
+## P1 创作者完整对话原文
+
+下面是创作者与设计助手在 P1 阶段的完整对话原文。「世界框架」（context_world 单行字符串）是这段对话的索引摘要——单行字段会丢失地理细节、势力恩怨、命名意象、感官氛围等关键信息。
+当你需要**地理 / 势力 / 科技体系 / 超自然规则 / 命名意象**的具体描述、命名、关系、感官细节时，回到下面的原文里找；当框架字段与原文有冲突时，原文优先。
+
+${formatP1ChatHistoryForPrompt(p1ChatHistory)}`,
 
   // ========================================
   // Stage 2: 规则系统 (Prompt Modules)
   // ========================================
-  (p1Output, worldSetting, s3) => {
+  (p1Output, worldSetting, s3, p1ChatHistory) => {
     const entityList = worldSetting?.settings
       ? Object.entries(worldSetting.settings)
           .filter(([k]) => !k.startsWith('_'))
@@ -807,13 +840,20 @@ init 模块中所有具名角色，必须**严格来自上方"世界实体列表
 ${s3?.statusText || '（使用默认配置）'}
 
 - economy 模块（如生成）必须使用上述字段中标注的货币名称作为基础货币单位
-- time_protocol 模块（如生成）必须使用上述字段中标注的纪年体系和时间单位`;
+- time_protocol 模块（如生成）必须使用上述字段中标注的纪年体系和时间单位
+
+## P1 创作者完整对话原文
+
+下面是创作者与设计助手在 P1 阶段的完整对话原文。「规则系统偏好」（context_rules 单行字符串）是这段对话的索引摘要——单行字段会丢失玩法细节、经济运作、战斗机制、特殊系统的具体描述。
+当你需要**玩法偏好 / 经济 / 战斗 / 特殊系统 / 角色独特字段**的具体描述、命名、感官细节时，回到下面的原文里找；当框架字段与原文有冲突时，原文优先。
+
+${formatP1ChatHistoryForPrompt(p1ChatHistory)}`;
   },
 
   // ========================================
   // Stage 3: 角色数据库 (Character Database)
   // ========================================
-  (p1Output, worldSetting, promptModules, s3) => {
+  (p1Output, worldSetting, promptModules, s3, p1ChatHistory) => {
     const wsummary = worldSetting?._summary || '（未提供）';
     const rsummary = promptModules?._summary || '（未提供）';
     const moduleKeys = promptModules?.modules
@@ -950,13 +990,20 @@ ${panelFieldDocs}
 ## 游戏 UI 时间系统字段
 ${s3?.statusText || '（使用默认配置）'}
 
-birthday 字段的纪年名必须与上述时间系统中的纪年名称（_纪年名称）完全一致。`;
+birthday 字段的纪年名必须与上述时间系统中的纪年名称（_纪年名称）完全一致。
+
+## P1 创作者完整对话原文
+
+下面是创作者与设计助手在 P1 阶段的完整对话原文。「角色概念」（context_chars 单行字符串）是这段对话的索引摘要——单行字段会丢失人物外貌、性格细节、能力描述、关系网络的具体描述。
+当你需要**具体角色的姓名 / 外貌 / 性格 / 能力 / 关系 / 出身**的具体描述、命名、感官细节时，回到下面的原文里找；当框架字段与原文有冲突时，原文优先。
+
+${formatP1ChatHistoryForPrompt(p1ChatHistory)}`;
   },
 
   // ========================================
   // Stage 4: 时间线 + 角色时间线 (Timeline + Character Timelines)
   // ========================================
-  (p1Output, worldSetting, _promptModules, characterDatabase, s3) => {
+  (p1Output, worldSetting, _promptModules, characterDatabase, s3, p1ChatHistory) => {
     const wsummary = worldSetting?._summary || '（未提供）';
     // 提取角色列表（名字+头衔）
     const charList = characterDatabase
@@ -1084,7 +1131,14 @@ ${s3?.statusText || '（使用默认配置）'}
 
 时间线的 time 字段必须使用上述纪年名 + 结构化数字格式（引擎需解析数字部分）。
 使用阿拉伯数字，年.月 或 年.月.日 用英文句号分隔。
-角色时间线中的 year/month/day 数值应与上述纪年体系对应的数字一致。`;
+角色时间线中的 year/month/day 数值应与上述纪年体系对应的数字一致。
+
+## P1 创作者完整对话原文
+
+下面是创作者与设计助手在 P1 阶段的完整对话原文。「时间线」（context_timeline 单行字符串）是这段对话的索引摘要——单行字段会丢失历史脉络、当前局势、剧情钩子的具体描述。
+当你需要**历史事件 / 当前局势 / 剧情钩子 / 时间脉络**的具体描述、命名、感官细节时，回到下面的原文里找；当框架字段与原文有冲突时，原文优先。
+
+${formatP1ChatHistoryForPrompt(p1ChatHistory)}`;
   },
 ];
 
@@ -1096,7 +1150,7 @@ ${s3?.statusText || '（使用默认配置）'}
 /**
  * Stage 1 minimal prompt — 只生成1-2个简单地点，简短世界描述
  */
-const PHASE2_STAGE1_MINIMAL = (p1Output, s3) => `你是一个游戏世界观设计师。请根据以下世界框架描述，生成一个简化的世界设定。
+const PHASE2_STAGE1_MINIMAL = (p1Output, s3, p1ChatHistory) => `你是一个游戏世界观设计师。请根据以下世界框架描述，生成一个简化的世界设定。
 
 ## 用户的世界设定
 ${p1Output.context_world}
@@ -1135,14 +1189,21 @@ ${p1Output.style_guide}
 - **\`_narrativeCoreCharacters\` 必须填写**：从每个地点设定中提取所有提到的**人物角色名**，按地点 ID 分组。只保留人名，不包含地名、组织名等
 
 ## 游戏 UI 时间系统字段
-${s3?.statusText || '（使用默认配置）'}`;
+${s3?.statusText || '（使用默认配置）'}
+
+## P1 创作者完整对话原文
+
+下面是创作者与设计助手在 P1 阶段的完整对话原文。「世界框架」（context_world 单行字符串）是这段对话的索引摘要——单行字段会丢失地理细节、势力恩怨、命名意象、感官氛围等关键信息。
+即便是简化场景，回到原文里取地点命名、氛围基调、关键人物的具体描述，也比凭空发挥更贴合创作者意图。
+
+${formatP1ChatHistoryForPrompt(p1ChatHistory)}`;
 
 /**
  * Stage 2 simplified prompt — 复用完整版 prompt，追加简化约束
  * 只生成必要模块（init, npc_gen, core_world_mechanics, narrative_base），跳过 time_protocol/economy 等可选模块
  */
-const PHASE2_STAGE2_SIMPLIFIED = (p1Output, worldSetting, s3) => {
-  const fullPrompt = PHASE2_STAGE_PROMPTS[1](p1Output, worldSetting, s3);
+const PHASE2_STAGE2_SIMPLIFIED = (p1Output, worldSetting, s3, p1ChatHistory) => {
+  const fullPrompt = PHASE2_STAGE_PROMPTS[1](p1Output, worldSetting, s3, p1ChatHistory);
   return fullPrompt + `
 
 ## [!CRITICAL] 简化模式约束（覆盖上述模块要求）
@@ -1155,7 +1216,7 @@ const PHASE2_STAGE2_SIMPLIFIED = (p1Output, worldSetting, s3) => {
 /**
  * Stage 4 light prompt — 精简时间线（5-10个事件）+ 简化角色时间线
  */
-const PHASE2_STAGE4_LIGHT = (p1Output, worldSetting, _promptModules, characterDatabase, s3) => {
+const PHASE2_STAGE4_LIGHT = (p1Output, worldSetting, _promptModules, characterDatabase, s3, p1ChatHistory) => {
   const wsummary = worldSetting?._summary || '（未提供）';
   const charList = characterDatabase
     ? Object.entries(characterDatabase)
@@ -1238,7 +1299,14 @@ ${p1Output.context_chars}
 - 角色 ID 必须与角色数据库中的 ID 完全一致
 
 ## 游戏 UI 时间系统字段
-${s3?.statusText || '（使用默认配置）'}`;
+${s3?.statusText || '（使用默认配置）'}
+
+## P1 创作者完整对话原文
+
+下面是创作者与设计助手在 P1 阶段的完整对话原文。「时间线」（context_timeline 单行字符串）是这段对话的索引摘要——单行字段会丢失历史脉络、当前局势、剧情钩子的具体描述。
+即便是简化场景，从原文取关键事件、角色动机、剧情张力的具体描写，也比凭空填充更能延续创作者的情绪线。
+
+${formatP1ChatHistoryForPrompt(p1ChatHistory)}`;
 };
 
 // ============================================

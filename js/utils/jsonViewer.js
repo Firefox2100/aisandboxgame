@@ -102,21 +102,32 @@ class JsonViewer {
     copyBtn.dataset.action = 'jv-copy-btn';
     copyBtn.textContent = 'Copy';
     copyBtn.title = 'Copy this ' + type;
+    // sync handler + .then() 链（iOS Safari user activation 跨 microtask 不可靠的 hardening）
     copyBtn.onclick = e => {
       e.stopPropagation();
+      let text;
       try {
-        this._copyToClipboard(JSON.stringify(value, null, 2));
-        copyBtn.classList.add('is-success');
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => {
-          copyBtn.classList.remove('is-success');
-          copyBtn.textContent = 'Copy';
-        }, 1500);
+        text = JSON.stringify(value, null, 2);
       } catch (err) {
         console.error('JSON Stringify failed', err);
         copyBtn.textContent = 'Error!';
         setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
+        return;
       }
+      this._copyToClipboard(text)
+        .then(() => {
+          copyBtn.classList.add('is-success');
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => {
+            copyBtn.classList.remove('is-success');
+            copyBtn.textContent = 'Copy';
+          }, 1500);
+        })
+        .catch(err => {
+          console.error('Copy failed', err);
+          copyBtn.textContent = 'Error!';
+          setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
+        });
     };
     summary.appendChild(copyBtn);
 
@@ -173,24 +184,25 @@ class JsonViewer {
     return typeof value;
   }
 
-  async _copyToClipboard(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      console.error('Failed to copy successfully: ', err);
-      // Fallback
+  // 返回 Promise（不再 async），由调用方用 .then().catch() 链消费，保留 user gesture 上下文
+  _copyToClipboard(text) {
+    return navigator.clipboard.writeText(text).catch(err => {
+      console.error('Failed to copy via Clipboard API: ', err);
+      // Fallback to execCommand（同步 copy，兼容旧环境）
       const textArea = document.createElement('textarea');
       textArea.value = text;
       document.body.appendChild(textArea);
-      textArea.focus();
+      textArea.focus({ preventScroll: true });
       textArea.select();
       try {
         document.execCommand('copy');
-      } catch (err) {
-        console.error('Fallback copy failed', err);
+      } catch (e) {
+        console.error('Fallback copy failed', e);
+        document.body.removeChild(textArea);
+        throw err;
       }
       document.body.removeChild(textArea);
-    }
+    });
   }
 }
 

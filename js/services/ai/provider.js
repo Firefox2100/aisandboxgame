@@ -74,7 +74,7 @@ class _AIServiceProviderMixin {
       const url = trimmed + '/v1/models';
       const response = await fetch(url, {
         headers: {
-          'x-api-key': apiKey,
+          'x-api-key': window.apiKeySanitizer.sanitize(apiKey),
           'anthropic-version': '2023-06-01',
           'anthropic-dangerous-direct-browser-access': 'true',
         },
@@ -89,7 +89,7 @@ class _AIServiceProviderMixin {
     }
     const url = this._normalizeProviderBaseUrl(baseUrl) + '/models';
     const response = await fetch(url, {
-      headers: { Authorization: 'Bearer ' + apiKey },
+      headers: { Authorization: 'Bearer ' + window.apiKeySanitizer.sanitize(apiKey) },
     });
     if (!response.ok) {
       const err = await response.json().catch(() => null);
@@ -125,7 +125,7 @@ class _AIServiceProviderMixin {
 
   async _testGemini(apiKey, model, startTime) {
     const testModel = model || 'gemini-3.1-flash-lite-preview';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${testModel}?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${testModel}?key=${window.apiKeySanitizer.sanitize(apiKey)}`;
     const response = await fetch(url);
     const latency = Math.round(performance.now() - startTime);
 
@@ -167,7 +167,7 @@ class _AIServiceProviderMixin {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + apiKey,
+        Authorization: 'Bearer ' + window.apiKeySanitizer.sanitize(apiKey),
       },
       body: JSON.stringify({
         model: testModel,
@@ -220,7 +220,7 @@ class _AIServiceProviderMixin {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'x-api-key': window.apiKeySanitizer.sanitize(apiKey),
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
@@ -284,6 +284,12 @@ class _AIServiceProviderMixin {
         // 检查是否是自定义 provider
         const customProvider = this.getCustomProviders(options).find(p => p.id === config.provider);
         if (customProvider) {
+          const customMaxOutputTokens =
+            customProvider.maxOutputTokensEnabled === true &&
+            Number.isFinite(customProvider.maxOutputTokens) &&
+            customProvider.maxOutputTokens > 0
+              ? customProvider.maxOutputTokens
+              : null;
           if (customProvider.protocol === 'anthropic') {
             return new AnthropicAdapter(
               config,
@@ -291,7 +297,8 @@ class _AIServiceProviderMixin {
               this,
               'custom',
               customProvider.name,
-              customProvider.baseUrl
+              customProvider.baseUrl,
+              customMaxOutputTokens
             );
           }
           return new OpenAIAdapter(
@@ -300,7 +307,8 @@ class _AIServiceProviderMixin {
             this,
             'custom',
             customProvider.name,
-            customProvider.baseUrl
+            customProvider.baseUrl,
+            customMaxOutputTokens
           );
         }
         // 未知 provider（可能已被删除），回退到 gemini
@@ -342,6 +350,23 @@ class _AIServiceProviderMixin {
     if (provider === 'anthropic') return true;
     const cp = this.getCustomProviders(AI_REQUEST_SCOPED).find(p => p.id === provider);
     return cp?.protocol === 'anthropic';
+  }
+
+  /**
+   * 解析模块对应的自定义服务商 maxOutputTokens 覆盖值。
+   * 仅当自定义服务商打开了开关且填了正整数才返回该值，否则返回 null。
+   * 用于 summary-sms.js 等直接构造 payload 的代码路径（绕过 adapter）。
+   * @param {string} module
+   * @returns {number|null}
+   */
+  _resolveCustomProviderMaxOutputTokens(module) {
+    const provider = this.getProviderForModule(module, AI_REQUEST_SCOPED);
+    const cp = this.getCustomProviders(AI_REQUEST_SCOPED).find(p => p.id === provider);
+    if (!cp) return null;
+    if (cp.maxOutputTokensEnabled !== true) return null;
+    const value = Number(cp.maxOutputTokens);
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return Math.floor(value);
   }
 
   /**

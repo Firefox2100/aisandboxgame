@@ -49,13 +49,13 @@
       loginPasswordPlaceholder: en ? 'Password' : '密码',
       loginSubmit: en ? 'Sign in' : '登录',
       registerSubmit: en ? 'Create account' : '注册',
+      loginSubmitting: en ? 'Signing in…' : '登录中…',
+      registerSubmitting: en ? 'Creating account…' : '注册中…',
       toggleToRegister: en ? "Don't have an account? Sign up" : '没有账号？注册',
       toggleToLogin: en ? 'Already a member? Sign in' : '已有账号？登录',
-      orDivider: en ? 'OR' : '或',
-      oauthWeChat: en ? 'WeChat' : '微信登录',
-      oauthGoogle: en ? 'Google' : 'Google 登录',
-      oauthApple: en ? 'Apple' : 'Apple 登录',
       continueGuest: en ? 'Continue as guest' : '继续以游客模式使用',
+      passwordTooShort: en ? 'Password must be at least 8 characters' : '密码至少 8 位',
+      networkError: en ? 'Network error, please try again' : '网络异常，请稍后重试',
       // 充值
       currentBalance: en ? 'Current Balance' : '当前余额',
       currentTier: en ? 'Plan' : '套餐',
@@ -127,8 +127,23 @@
     const copy = getCopy();
     const isGuest = state.authStatus === 'guest';
 
+    // guest → 显示静态"游客模式"信息卡（登录/注册暂未开放，T2 上线后切回 renderLoginForm()）
+    // signed_in → 显示个人资料行
     const profileContent = isGuest
-      ? renderProfileLocked(copy)
+      ? `
+        <div class="account-profile-row">
+          <div class="account-avatar account-avatar--lg account-avatar--guest">
+            <span class="material-symbols-outlined">person</span>
+          </div>
+          <div class="account-profile-info">
+            <div class="account-profile-name">
+              <span class="ui-label-cn">游客模式</span><span class="ui-label-en">Guest Mode</span>
+            </div>
+            <div class="account-profile-email">
+              <span class="ui-label-cn">当前所有数据保存在本地，无需注册。未来登录后可启用云同步。</span><span class="ui-label-en">All data is stored locally. No registration needed. Cloud sync will be available after login.</span>
+            </div>
+          </div>
+        </div>`
       : `
         <div class="account-profile-row">
           <div class="account-avatar account-avatar--lg ${state.tier !== 'free' ? 'account-avatar--premium' : 'account-avatar--signed-in'}">
@@ -183,8 +198,8 @@
           </button>
         </div>
 
-        <!-- 个人资料 -->
-        <div class="account-card ${isGuest ? 'account-card--locked' : ''}" data-account-section="profile">
+        <!-- 个人资料 / 登录入口 -->
+        <div class="account-card" data-account-section="profile">
           <div class="account-card__header">
             <span class="material-symbols-outlined account-card__icon">person</span>
             <span class="account-card__title">
@@ -233,12 +248,15 @@
   }
 
   // ────── 子渲染：登录表单 ──────
+  // 第三方登录（微信/Google/Apple）现已在 boxhill 后台关闭，此处不渲染对应按钮。
+  // 等用户在 boxhill 启用某个 OAuth 后再加回来。
   function renderLoginForm() {
     const copy = getCopy();
     const submitLabel = loginFormMode === 'login' ? copy.loginSubmit : copy.registerSubmit;
     const toggleLabel = loginFormMode === 'login' ? copy.toggleToRegister : copy.toggleToLogin;
     return `
-      <form class="account-login-form" data-action="login-form">
+      <form class="account-login-form" data-action="login-form" novalidate>
+        <div class="account-login-error" data-role="login-error" hidden></div>
         <input
           type="email"
           name="email"
@@ -251,27 +269,13 @@
           type="password"
           name="password"
           required
+          minlength="8"
           class="account-login-input"
           placeholder="${escapeHtml(copy.loginPasswordPlaceholder)}"
           autocomplete="${loginFormMode === 'login' ? 'current-password' : 'new-password'}"
         />
-        <button type="submit" class="btn-primary account-login-submit">${escapeHtml(submitLabel)}</button>
+        <button type="submit" class="btn-primary account-login-submit" data-role="login-submit" data-default-label="${escapeHtml(submitLabel)}">${escapeHtml(submitLabel)}</button>
         <button type="button" class="account-login-toggle" data-action="login-toggle-mode">${escapeHtml(toggleLabel)}</button>
-        <div class="account-login-divider"><span>${escapeHtml(copy.orDivider)}</span></div>
-        <div class="account-login-oauth">
-          <button type="button" class="account-login-oauth-btn" data-oauth="wechat">
-            <span class="account-login-oauth-emoji" aria-hidden="true">💬</span>
-            <span>${escapeHtml(copy.oauthWeChat)}</span>
-          </button>
-          <button type="button" class="account-login-oauth-btn" data-oauth="google">
-            <span class="account-login-oauth-emoji" aria-hidden="true">🌐</span>
-            <span>${escapeHtml(copy.oauthGoogle)}</span>
-          </button>
-          <button type="button" class="account-login-oauth-btn" data-oauth="apple">
-            <span class="account-login-oauth-emoji" aria-hidden="true">🍎</span>
-            <span>${escapeHtml(copy.oauthApple)}</span>
-          </button>
-        </div>
         <button type="button" class="account-login-guest-link" data-action="login-continue-guest">${escapeHtml(copy.continueGuest)}</button>
       </form>`;
   }
@@ -359,15 +363,46 @@
   // ────── 事件绑定 ──────
   function bindAccountCenterEvents(overlay, isGuest, state) {
     if (isGuest) {
-      // 登录表单提交
+      // 登录/注册表单提交（真实接 boxhill）
       const form = overlay.querySelector('[data-action="login-form"]');
       if (form) {
-        form.addEventListener('submit', e => {
+        form.addEventListener('submit', async e => {
           e.preventDefault();
+          const copy = getCopy();
+          const errorEl = form.querySelector('[data-role="login-error"]');
+          const submitBtn = form.querySelector('[data-role="login-submit"]');
           const email = form.querySelector('input[name="email"]').value.trim();
-          if (!email) return;
-          window.accountStore?.mockSignIn?.({ email });
-          // accountStore 触发 account:changed → onAccountChanged → re-render
+          const password = form.querySelector('input[name="password"]').value;
+
+          if (!email || !password) return;
+          if (loginFormMode === 'register' && password.length < 8) {
+            showFormError(errorEl, copy.passwordTooShort);
+            return;
+          }
+
+          // 进入 loading 状态
+          showFormError(errorEl, '');
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = loginFormMode === 'login' ? copy.loginSubmitting : copy.registerSubmitting;
+          }
+
+          try {
+            if (loginFormMode === 'login') {
+              await window.accountStore.signIn(email, password);
+            } else {
+              await window.accountStore.signUp(email, password);
+            }
+            // 成功 → store 触发 account:changed → onAccountChanged 自动 re-render
+          } catch (err) {
+            // 失败：显示错误，恢复按钮
+            const message = (err && err.message) ? err.message : copy.networkError;
+            showFormError(errorEl, message);
+            if (submitBtn) {
+              submitBtn.disabled = false;
+              submitBtn.textContent = submitBtn.dataset.defaultLabel || (loginFormMode === 'login' ? copy.loginSubmit : copy.registerSubmit);
+            }
+          }
         });
       }
       // 切换登录/注册模式
@@ -378,14 +413,6 @@
           renderAccountCenter(overlay);
         });
       }
-      // OAuth 按钮（mock）
-      overlay.querySelectorAll('[data-oauth]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const provider = btn.getAttribute('data-oauth');
-          const mockEmail = `mockuser+${provider}@example.com`;
-          window.accountStore?.mockSignIn?.({ email: mockEmail, displayName: `${provider}_user` });
-        });
-      });
       // 继续游客
       const guestLink = overlay.querySelector('[data-action="login-continue-guest"]');
       if (guestLink) {
@@ -537,6 +564,18 @@
     modal.addEventListener('click', e => {
       if (e.target === modal) closeRechargeModal();
     });
+  }
+
+  // ────── 登录表单错误显示 ──────
+  function showFormError(errorEl, message) {
+    if (!errorEl) return;
+    if (message) {
+      errorEl.textContent = message;
+      errorEl.removeAttribute('hidden');
+    } else {
+      errorEl.textContent = '';
+      errorEl.setAttribute('hidden', '');
+    }
   }
 
   // ────── 简易 toast ──────

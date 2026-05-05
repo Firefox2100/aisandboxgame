@@ -113,7 +113,9 @@
 
   dispatcher.register('update_panel', {
     phase: 'settlement',
-    required: true,
+    // softRequired：模型仍被 tool_choice 锁向 update_panel，但偶尔判断"本回合无变化"不调用
+    // 是合法情况；dispatcher 不会 throw，resultHandler 在空结果时返回 { skipped: true }
+    softRequired: true,
     tools: ['update_panel'],
 
     /**
@@ -138,6 +140,8 @@
 
     /**
      * 处理工具执行结果
+     * 注：本 skill 是 softRequired，工具可能未被调用（模型判断本回合无字段变化）；
+     * 此情况下返回 { skipped: true } 而非 error，避免下游被当成失败 skill 处理。
      */
     resultHandler(toolResults) {
       const panelResult = toolResults.find(r => r.name === 'update_panel');
@@ -148,7 +152,10 @@
           return { raw: panelResult.result };
         }
       }
-      return { error: panelResult?.error || 'update_panel 未执行' };
+      if (!panelResult) {
+        return { skipped: true, note: '本回合无字段变化' };
+      }
+      return { error: panelResult.error || 'update_panel 执行失败' };
     },
   });
 

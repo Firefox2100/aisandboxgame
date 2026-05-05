@@ -84,9 +84,13 @@ function _syncEditorPromptReadonlyState(activeCard = null) {
           currentText
         );
         hintEl.dataset.baseText = baseText;
-        hintEl.textContent = isBuiltIn
-          ? `${hintEl.dataset.baseText}${copy.custom.readonly.suffix}`
-          : hintEl.dataset.baseText;
+        hintEl.textContent = hintEl.dataset.baseText;
+        if (isBuiltIn) {
+          const suffixEl = document.createElement('span');
+          suffixEl.className = 'hint-readonly-suffix';
+          suffixEl.textContent = copy.custom.readonly.suffix;
+          hintEl.appendChild(suffixEl);
+        }
       }
       textarea.readOnly = isBuiltIn;
       textarea.setAttribute('aria-readonly', isBuiltIn ? 'true' : 'false');
@@ -441,7 +445,7 @@ const SETTINGS_LOCALE_COPY = {
       thinkingHint: 'DeepSeek 的部分工具调用可能不会回传思考文本',
       thinkingHelp:
         '当思考档位为 High 或 Max 时，DeepSeek 请求会路由到推理后端。但推理后端不接受"强制调用特定工具"的请求，因此游戏中需要必调工具的若干步骤（叙事生成、面板更新、选项生成等）会自动关闭这些请求的思考——以保证工具一定被调用，代价是这些请求看不到思考文本。<span class="module-thinking-help-emphasis">大部分的思考不受影响，可正常使用，思考会正常开启并生效。</span><a href="https://api-docs.deepseek.com/guides/function_calling" target="_blank" rel="noopener noreferrer">详见 DeepSeek API 文档</a>',
-      apiKeysFoldTitle: '官方服务商（Gemini / OpenAI / Grok / Anthropic）',
+      apiKeysFoldTitle: '官方服务商（Gemini / OpenAI / Grok / Anthropic 等）',
       apiKeysFoldNote: '只支持官方 API，需科学上网',
       simple: {
         gameLabel: '标准设置',
@@ -504,6 +508,9 @@ const SETTINGS_LOCALE_COPY = {
         protocolOpenAI: 'OpenAI 兼容（默认）',
         protocolAnthropic: 'Anthropic 兼容',
         baseUrlPlaceholderAnthropic: 'https://api.deepseek.com/anthropic',
+        maxOutputTokensLabel: 'Max Output Tokens',
+        maxOutputTokensPlaceholder: '例如 8192',
+        advancedSectionLabel: '高级',
       },
       feedback: {
         entryEyebrow: 'BUG FEEDBACK',
@@ -745,7 +752,7 @@ const SETTINGS_LOCALE_COPY = {
       thinkingHint: 'Some DeepSeek tool calls will not return thinking text.',
       thinkingHelp:
         'When Thinking is set to High or Max, DeepSeek requests are routed to the reasoner backend. The reasoner refuses requests that pin the model to a specific tool, so the game silently disables thinking on those steps (narrative generation, panel updates, choice generation) — the tool call is guaranteed to fire, but those requests no longer return thinking text. <span class="module-thinking-help-emphasis">Most requests are unaffected — Thinking still activates normally for the rest.</span> <a href="https://api-docs.deepseek.com/guides/function_calling" target="_blank" rel="noopener noreferrer">See the DeepSeek API docs</a>.',
-      apiKeysFoldTitle: 'Official Providers (Gemini / OpenAI / Grok / Anthropic)',
+      apiKeysFoldTitle: 'Official Providers (Gemini / OpenAI / Grok / Anthropic, etc.)',
       apiKeysFoldNote: 'Official APIs only',
       simple: {
         gameLabel: 'Standard Settings',
@@ -808,6 +815,9 @@ const SETTINGS_LOCALE_COPY = {
         protocolOpenAI: 'OpenAI-compatible (default)',
         protocolAnthropic: 'Anthropic-compatible',
         baseUrlPlaceholderAnthropic: 'https://api.deepseek.com/anthropic',
+        maxOutputTokensLabel: 'Max Output Tokens',
+        maxOutputTokensPlaceholder: 'e.g. 8192',
+        advancedSectionLabel: 'Advanced',
       },
       feedback: {
         entryEyebrow: 'BUG FEEDBACK',
@@ -1450,7 +1460,7 @@ const PROVIDERS = [
   'siliconflow',
   'openrouter',
 ];
-const FOLDED_OFFICIAL_PROVIDERS = ['gemini', 'openai', 'grok', 'anthropic'];
+const FOLDED_OFFICIAL_PROVIDERS = ['gemini', 'openai', 'grok', 'anthropic', 'siliconflow', 'openrouter'];
 const VISIBLE_PROVIDERS = PROVIDERS.filter(id => !FOLDED_OFFICIAL_PROVIDERS.includes(id));
 
 const SETTINGS_PROVIDER_OFFICIAL_URLS = {
@@ -3446,7 +3456,19 @@ function _maskApiKey(key) {
  */
 function _getApiKeyRealValue(input) {
   if (!input) return '';
-  return (input.dataset.realValue ?? input.value ?? '').trim();
+  const raw = (input.dataset.realValue ?? input.value ?? '').trim();
+  return window.apiKeySanitizer ? window.apiKeySanitizer.sanitize(raw) : raw;
+}
+
+/**
+ * 提示用户粘贴/输入的 API Key 中含非 ASCII 字符已被自动剥离
+ */
+function _maybeNotifyApiKeySanitized(originalTrimmed, sanitized) {
+  if (!window.apiKeySanitizer) return;
+  const stripped = window.apiKeySanitizer.countStripped(originalTrimmed, sanitized);
+  if (stripped > 0 && typeof window.showToast === 'function') {
+    window.showToast(`已自动清理 ${stripped} 个无效字符`, 'warning', 2000);
+  }
 }
 
 /**
@@ -3456,7 +3478,10 @@ function _getApiKeyRealValue(input) {
  */
 function _setApiKeyValue(input, realValue) {
   if (!input) return;
-  const trimmed = (realValue || '').trim();
+  const trimmedRaw = (realValue || '').trim();
+  const trimmed = window.apiKeySanitizer
+    ? window.apiKeySanitizer.sanitize(trimmedRaw)
+    : trimmedRaw;
   input.dataset.realValue = trimmed;
   // 仅在输入框未聚焦时显示部分遮罩，聚焦时用 password 模式全遮罩
   if (document.activeElement !== input) {
@@ -3485,10 +3510,14 @@ function _bindApiKeyMaskEvents(input) {
 
   input.addEventListener('blur', () => {
     // 失焦时将当前输入值视为新的真实值，显示部分遮罩
-    const current = input.value.trim();
-    input.dataset.realValue = current;
+    const rawTrimmed = input.value.trim();
+    const sanitized = window.apiKeySanitizer
+      ? window.apiKeySanitizer.sanitize(rawTrimmed)
+      : rawTrimmed;
+    input.dataset.realValue = sanitized;
     input.type = 'text';
-    input.value = _maskApiKey(current);
+    input.value = _maskApiKey(sanitized);
+    _maybeNotifyApiKeySanitized(rawTrimmed, sanitized);
   });
 }
 
@@ -3504,11 +3533,14 @@ async function _pasteIntoInput(input, btn) {
    * 成功粘贴后的视觉反馈
    */
   function onSuccess(text) {
-    const trimmed = text.trim();
-    input.dataset.realValue = trimmed;
+    const rawTrimmed = text.trim();
+    const sanitized = window.apiKeySanitizer
+      ? window.apiKeySanitizer.sanitize(rawTrimmed)
+      : rawTrimmed;
+    input.dataset.realValue = sanitized;
     // 粘贴后立即显示部分遮罩
     input.type = 'text';
-    input.value = _maskApiKey(trimmed);
+    input.value = _maskApiKey(sanitized);
     btn.classList.add('api-key-paste-btn--success');
     const icon = btn.querySelector('.material-symbols-outlined');
     if (icon) icon.textContent = 'check';
@@ -3517,6 +3549,7 @@ async function _pasteIntoInput(input, btn) {
       if (icon) icon.textContent = 'content_paste';
     }, 1500);
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    _maybeNotifyApiKeySanitized(rawTrimmed, sanitized);
   }
 
   // Strategy 1: Clipboard API (works on HTTPS / localhost)
@@ -3805,18 +3838,16 @@ function _renderCustomProviderManager() {
       cpProtocol === 'anthropic'
         ? copy.general.provider.baseUrlPlaceholderAnthropic
         : 'https://api.example.com/v1';
+    const maxTokensEnabled = cp.maxOutputTokensEnabled === true;
+    const maxTokensValueAttr =
+      cp.maxOutputTokens != null && cp.maxOutputTokens !== ''
+        ? esc(String(cp.maxOutputTokens))
+        : '';
     row.innerHTML = `
             <div class="cp-field cp-field-name">
                 <span class="cp-label">${copy.general.provider.providerNameLabel}</span>
                 <input type="text" class="cp-name" value="${esc(cp.name)}" placeholder="${copy.general.provider.providerNamePlaceholder}">
                 <button class="btn-danger btn-icon" data-action="cp-delete-btn" title="${copy.general.provider.deleteButtonTitle}" type="button"><span class="material-symbols-outlined">delete</span></button>
-            </div>
-            <div class="cp-field cp-field-protocol">
-                <span class="cp-label">${copy.general.provider.protocolLabel}</span>
-                <select class="cp-protocol">
-                  <option value="openai"${cpProtocol === 'openai' ? ' selected' : ''}>${copy.general.provider.protocolOpenAI}</option>
-                  <option value="anthropic"${cpProtocol === 'anthropic' ? ' selected' : ''}>${copy.general.provider.protocolAnthropic}</option>
-                </select>
             </div>
             <div class="cp-field cp-field-baseurl">
                 <span class="cp-label">URL</span>
@@ -3836,6 +3867,29 @@ function _renderCustomProviderManager() {
                   </button>
                 </div>
                 <button class="btn-secondary" data-action="api-test-btn" data-provider="${cp.id}" data-default-text="${copy.general.provider.test}" data-default-title="${copy.general.provider.testConnectionTitle}" title="${copy.general.provider.testConnectionTitle}">${copy.general.provider.test}</button>
+            </div>
+            <div class="cp-advanced-divider" aria-hidden="true">
+                <span class="cp-advanced-divider-label">${copy.general.provider.advancedSectionLabel}</span>
+            </div>
+            <div class="cp-field cp-field-protocol">
+                <span class="cp-label">${copy.general.provider.protocolLabel}</span>
+                <select class="cp-protocol">
+                  <option value="openai"${cpProtocol === 'openai' ? ' selected' : ''}>${copy.general.provider.protocolOpenAI}</option>
+                  <option value="anthropic"${cpProtocol === 'anthropic' ? ' selected' : ''}>${copy.general.provider.protocolAnthropic}</option>
+                </select>
+            </div>
+            <div class="cp-field cp-field-maxtokens">
+                <span class="cp-label">${copy.general.provider.maxOutputTokensLabel}</span>
+                <div class="tab-strip cp-maxtokens-toggle" data-toggle-target="cp-maxtokens-toggle-${esc(cp.id)}">
+                  <input type="checkbox" id="cp-maxtokens-toggle-${esc(cp.id)}" class="cp-maxtokens-enabled" hidden${maxTokensEnabled ? ' checked' : ''}>
+                  <button type="button" class="tab${maxTokensEnabled ? ' is-active' : ''}" data-value="on">
+                    <span class="ui-label-cn">开</span><span class="ui-label-en">On</span>
+                  </button>
+                  <button type="button" class="tab${maxTokensEnabled ? '' : ' is-active'}" data-value="off">
+                    <span class="ui-label-cn">关</span><span class="ui-label-en">Off</span>
+                  </button>
+                </div>
+                <input type="number" class="cp-maxtokens-value" min="1" step="1" placeholder="${copy.general.provider.maxOutputTokensPlaceholder}" value="${maxTokensValueAttr}"${maxTokensEnabled ? '' : ' disabled'}>
             </div>
         `;
     // 初始化 API Key 遮罩
@@ -3884,6 +3938,16 @@ function _renderCustomProviderManager() {
     };
     protocolSelect.addEventListener('change', applyProtocolUI);
     applyProtocolUI();
+
+    // Max Output Tokens 开关：勾上才允许输入数字
+    const maxTokensToggle = row.querySelector('.cp-maxtokens-enabled');
+    const maxTokensInput = row.querySelector('.cp-maxtokens-value');
+    if (maxTokensToggle && maxTokensInput) {
+      maxTokensToggle.addEventListener('change', () => {
+        maxTokensInput.disabled = !maxTokensToggle.checked;
+        if (maxTokensToggle.checked) maxTokensInput.focus();
+      });
+    }
 
     // 自定义服务商行内 name / defaultModel 实时同步到模块 provider/model 下拉
     const cpNameInput = row.querySelector('.cp-name');
@@ -3996,6 +4060,9 @@ function _renderCustomProviderManager() {
     });
     container.appendChild(addBtn);
   }
+
+  // 给本次新渲染的 Max Output Tokens 二段开关挂上点击 → 同步 hidden checkbox 的桥接
+  _bindToggleTabStrips();
 }
 
 /**
@@ -6308,6 +6375,13 @@ function saveSettings() {
     const protocol = row.querySelector('.cp-protocol')?.value === 'anthropic' ? 'anthropic' : 'openai';
     const cpApiKeyInput = row.querySelector('.cp-apikey');
     const apiKey = cpApiKeyInput ? _getApiKeyRealValue(cpApiKeyInput) : '';
+    const maxOutputTokensEnabled = !!row.querySelector('.cp-maxtokens-enabled')?.checked;
+    const rawMaxOutputTokens = row.querySelector('.cp-maxtokens-value')?.value?.trim();
+    const parsedMaxOutputTokens = parseInt(rawMaxOutputTokens, 10);
+    const maxOutputTokens =
+      Number.isFinite(parsedMaxOutputTokens) && parsedMaxOutputTokens > 0
+        ? parsedMaxOutputTokens
+        : null;
     if (id && name) {
       customProviders.push({
         id,
@@ -6315,6 +6389,8 @@ function saveSettings() {
         baseUrl: baseUrl || '',
         defaultModel: defaultModel || '',
         protocol,
+        maxOutputTokensEnabled,
+        maxOutputTokens,
       });
       // 将自定义 provider 的 API Key 一并收集
       if (apiKey) {

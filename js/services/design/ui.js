@@ -614,18 +614,22 @@ class _DesignServiceUIMixin {
       });
 
       // 复制
-      copyBtn.addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(textarea.value);
-          copyBtn.classList.add('is-success');
-          copyBtn.querySelector('.dcv-act-label').textContent = '已复制';
-          setTimeout(() => {
-            copyBtn.classList.remove('is-success');
-            copyBtn.querySelector('.dcv-act-label').textContent = '复制';
-          }, 1500);
-        } catch (err) {
-          console.error('Copy failed', err);
-        }
+      // sync handler + .then() 链：iOS Safari 在 async handler 下 user activation 跨 microtask 不可靠，
+      // 历史上常见 NotAllowedError。保持同步入口让浏览器在调用瞬间能识别到 user gesture。
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard
+          .writeText(textarea.value)
+          .then(() => {
+            copyBtn.classList.add('is-success');
+            copyBtn.querySelector('.dcv-act-label').textContent = '已复制';
+            setTimeout(() => {
+              copyBtn.classList.remove('is-success');
+              copyBtn.querySelector('.dcv-act-label').textContent = '复制';
+            }, 1500);
+          })
+          .catch(err => {
+            console.error('Copy failed', err);
+          });
       });
     }
   }

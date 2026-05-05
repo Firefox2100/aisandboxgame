@@ -394,6 +394,9 @@ class _AIServiceSummarySmsMixin {
 
     if (options && (options.maxTokens || options.max_tokens)) {
       payload.max_tokens = options.maxTokens || options.max_tokens;
+    } else {
+      const customMax = this._resolveCustomProviderMaxOutputTokens(module);
+      if (customMax) payload.max_tokens = customMax;
     }
 
     this._applyDeepseekThinkingToPayload(payload, provider, model, module);
@@ -484,6 +487,9 @@ class _AIServiceSummarySmsMixin {
       temperature,
     };
 
+    const customMaxSms = this._resolveCustomProviderMaxOutputTokens('sms');
+    if (customMaxSms) payload.max_tokens = customMaxSms;
+
     this._applyDeepseekThinkingToPayload(payload, provider, model, 'sms');
 
     this.lastSMSPayload = { provider: provider, url, payload };
@@ -516,7 +522,11 @@ class _AIServiceSummarySmsMixin {
 
     const payload = {
       model: model,
-      max_tokens: options?.maxTokens || options?.max_tokens || 16384,
+      max_tokens:
+        options?.maxTokens ||
+        options?.max_tokens ||
+        this._resolveCustomProviderMaxOutputTokens(module) ||
+        16384,
       system: systemPrompt,
       messages: anthropicMessages,
       temperature: Math.max(0.01, temperature),
@@ -559,7 +569,7 @@ class _AIServiceSummarySmsMixin {
 
     const payload = {
       model: model,
-      max_tokens: 16384,
+      max_tokens: this._resolveCustomProviderMaxOutputTokens('sms') || 16384,
       system: systemPrompt,
       messages: anthropicMessages,
       temperature: Math.max(0.01, temperature),

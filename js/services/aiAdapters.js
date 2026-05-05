@@ -948,13 +948,15 @@ class OpenAIAdapter extends BaseAdapter {
     aiService,
     provider = 'openai',
     customName = null,
-    customBaseUrl = null
+    customBaseUrl = null,
+    customMaxOutputTokens = null
   ) {
     super(config, apiKey, aiService);
     this.provider = provider; // 'openai' | 'grok' | 'deepseek' | 'siliconflow' | 'openrouter' | 'custom'
     this.protocolFamily = 'openai';
     this.customName = customName;
     this.customBaseUrl = customBaseUrl;
+    this.customMaxOutputTokens = customMaxOutputTokens;
   }
 
   getProviderLabel() {
@@ -1139,8 +1141,11 @@ class OpenAIAdapter extends BaseAdapter {
       }
     }
 
-    if (options.maxTokens || options.max_tokens) {
-      payload.max_tokens = options.maxTokens || options.max_tokens;
+    const explicitMaxTokens = options.maxTokens || options.max_tokens;
+    if (explicitMaxTokens) {
+      payload.max_tokens = explicitMaxTokens;
+    } else if (this.customMaxOutputTokens) {
+      payload.max_tokens = this.customMaxOutputTokens;
     }
 
     return { payload, url, streamUrl: url };
@@ -1275,7 +1280,8 @@ class OpenAIAdapter extends BaseAdapter {
         kind: data?.error ? 'error_body' : (!data?.choices?.length ? 'no_choices' : 'empty_response'),
         finishReason: choice?.finish_reason || null,
         errorBody: data?.error || undefined,
-        rawData: data,  // 完整原始 body
+        // rawData 故意省略：data 自身已挂载 _diagnostics，自引用会让 JSON.stringify 抛
+        // "Converting circular structure to JSON"。下游没有消费 _diagnostics.rawData，需要原始 body 时直接读 data。
         requestSummary: {
           tool_choice: payload.tool_choice,
           tools_count: Array.isArray(payload.tools) ? payload.tools.length : 0,
@@ -1802,12 +1808,13 @@ class OpenAIAdapter extends BaseAdapter {
  * 使用 Anthropic Messages API 格式
  */
 class AnthropicAdapter extends BaseAdapter {
-  constructor(config, apiKey, aiService, provider = 'anthropic', customName = null, customBaseUrl = null) {
+  constructor(config, apiKey, aiService, provider = 'anthropic', customName = null, customBaseUrl = null, customMaxOutputTokens = null) {
     super(config, apiKey, aiService);
     this.provider = provider; // 'anthropic' | 'custom'
     this.protocolFamily = 'anthropic';
     this.customName = customName;
     this.customBaseUrl = customBaseUrl;
+    this.customMaxOutputTokens = customMaxOutputTokens;
     // Anthropic extended thinking / DeepSeek thinking 模式：服务端要求把上一轮响应里的 thinking block
     // 原样回填到下一轮 assistant 消息（含 signature），否则报 "content[].thinking must be passed back"。
     // 这里缓存上一次响应的 content blocks，appendToolResults/appendAssistantText 用它重建消息。
@@ -1864,7 +1871,7 @@ class AnthropicAdapter extends BaseAdapter {
 
     const payload = {
       model: this.config.model,
-      max_tokens: options.maxTokens || 16384,
+      max_tokens: options.maxTokens || this.customMaxOutputTokens || 16384,
       system: systemBlocks,
       messages: convertedMessages,
     };

@@ -237,15 +237,19 @@ function getPwaUpdatePromptTitle() {
 }
 function getPwaUpdatePromptDescription() {
   return window.i18nService?.getResolvedLanguage?.() === 'en'
-    ? 'The new version is ready. Update now to refresh into the latest build.'
-    : '已下载完成，点击“立即更新”后刷新进入最新版。';
+    ? 'A new version is ready. The page will refresh to apply the update.'
+    : '新版本已下载完成，将刷新页面进入最新版。';
 }
 const PWA_UPDATE_IDLE_CHECK_MS = 800;
+const PWA_UPDATE_MAX_IDLE_WAIT_MS = 60 * 1000;
+const PWA_RELOAD_FALLBACK_MS = 5000;
 const pwaUpdatePromptState = {
   pending: false,
   suppressedForSession: false,
   isModalOpen: false,
   idleTimerId: null,
+  pendingSince: null,
+  reloadFallbackTimerId: null,
 };
 
 function _clearPwaUpdateIdleTimer() {
@@ -253,21 +257,32 @@ function _clearPwaUpdateIdleTimer() {
     clearInterval(pwaUpdatePromptState.idleTimerId);
     pwaUpdatePromptState.idleTimerId = null;
   }
+  pwaUpdatePromptState.pendingSince = null;
+}
+
+function _scheduleReloadFallback() {
+  if (pwaUpdatePromptState.reloadFallbackTimerId !== null) return;
+  pwaUpdatePromptState.reloadFallbackTimerId = setTimeout(() => {
+    pwaUpdatePromptState.reloadFallbackTimerId = null;
+    window.location.reload();
+  }, PWA_RELOAD_FALLBACK_MS);
 }
 
 function _applyPwaUpdateNow() {
   const service = window.pwaUpdateService;
   if (!service || typeof service.applyUpdate !== 'function') {
-    if (typeof showToast === 'function') {
-      showToast('更新服务不可用，请稍后重试');
-    }
-    return;
+    window.location.reload();
+    return false;
   }
 
   const sent = service.applyUpdate();
-  if (!sent && typeof showToast === 'function') {
-    showToast('更新未就绪，请稍后重试');
+  if (!sent) {
+    window.location.reload();
+    return false;
   }
+
+  _scheduleReloadFallback();
+  return true;
 }
 
 function _buildUpdateChangelogHtml(entry) {
@@ -306,6 +321,7 @@ async function _showPwaUpdatePrompt() {
   const isEn = window.i18nService?.getResolvedLanguage?.() === 'en';
   const modalOptions = {
     confirmLabel: isEn ? 'Update Now' : '立即更新',
+    hideCancel: true,
   };
   if (changelogHtml) {
     modalOptions.descriptionHtml =
@@ -321,18 +337,16 @@ async function _showPwaUpdatePrompt() {
       _clearPwaUpdateIdleTimer();
       _applyPwaUpdateNow();
     },
-    () => {
-      pwaUpdatePromptState.isModalOpen = false;
-      pwaUpdatePromptState.pending = false;
-      pwaUpdatePromptState.suppressedForSession = true;
-      _clearPwaUpdateIdleTimer();
-    },
+    null,
     modalOptions
   );
 }
 
 function _schedulePwaUpdatePromptWhenIdle() {
   if (pwaUpdatePromptState.idleTimerId !== null) return;
+  if (pwaUpdatePromptState.pendingSince === null) {
+    pwaUpdatePromptState.pendingSince = Date.now();
+  }
 
   pwaUpdatePromptState.idleTimerId = setInterval(() => {
     if (pwaUpdatePromptState.suppressedForSession || !pwaUpdatePromptState.pending) {
@@ -342,7 +356,11 @@ function _schedulePwaUpdatePromptWhenIdle() {
 
     const modal = document.getElementById('confirm-modal');
     const modalBusy = modal && !modal.classList.contains('hidden');
-    if (!isSending && !modalBusy) {
+    const waitedTooLong =
+      pwaUpdatePromptState.pendingSince !== null &&
+      Date.now() - pwaUpdatePromptState.pendingSince >= PWA_UPDATE_MAX_IDLE_WAIT_MS;
+    const canForceShow = waitedTooLong && !modalBusy;
+    if ((!isSending && !modalBusy) || canForceShow) {
       _clearPwaUpdateIdleTimer();
       _showPwaUpdatePrompt();
     }
@@ -767,7 +785,9 @@ function showConfirmModal(title, description, callback, cancelCallback = null, o
   }
   const cancelBtn = modal.querySelector('#confirm-cancel-btn');
   if (cancelBtn) {
-    cancelBtn.classList.toggle('hidden', !!options?.hideCancel);
+    const hideCancel = !!options?.hideCancel;
+    cancelBtn.classList.toggle('hidden', hideCancel);
+    cancelBtn.style.display = hideCancel ? 'none' : '';
     if (!cancelBtn.dataset.defaultLabel) {
       cancelBtn.dataset.defaultLabel = cancelBtn.textContent;
     }

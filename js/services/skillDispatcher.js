@@ -208,10 +208,13 @@ class SkillDispatcher {
     const thinkingLevel = typeof aiService.getModuleThinking === 'function'
       ? aiService.getModuleThinking('iter8_settlement', typeof AI_REQUEST_SCOPED !== 'undefined' ? AI_REQUEST_SCOPED : {})
       : 'off';
-    // 启发式锁工具：required=true 且仅 1 个工具的 skill → 锁该工具
-    //   panelSkill (required, [update_panel]) → tool_choice: { name: 'update_panel' }
+    // 启发式锁工具：required/softRequired 且仅 1 个工具的 skill → 锁该工具
+    //   panelSkill (softRequired, [update_panel]) → tool_choice: { name: 'update_panel' }
     //   inventorySkill (!required, [update_item]) → 'auto'（保留"零调用 = 无漏报"信号）
-    const toolChoice = (skill.required && skill.tools.length === 1)
+    // softRequired 与 required 在 tool_choice 锁定行为上一致；区别仅在事后处理：
+    //   required → 未调用任何工具时 throw（视为隐性失败，避免主循环卡死）
+    //   softRequired → 未调用任何工具时仅 warn（模型判断本回合无变化是合法情况）
+    const toolChoice = ((skill.required || skill.softRequired) && skill.tools.length === 1)
       ? { name: skill.tools[0] }
       : 'auto';
     const { payload, url } = adapter.buildPayload(
@@ -310,6 +313,14 @@ class SkillDispatcher {
     if (skill.required && skill.tools.length > 0 && completedTools.length === 0) {
       throw new Error(
         `skill "${name}" 是 required 但未实际成功调用任何声明工具 [${skill.tools.join(', ')}]（AI 可能误判为不需要更新）`
+      );
+    }
+
+    // 10c. softRequired：模型偶尔判断"本回合无字段变化"不调用工具是合法情况，不再 throw。
+    // 仅 warn，让 resultHandler 继续接收空 toolResults（约定返回 { skipped: true, ... }）。
+    if (skill.softRequired && skill.tools.length > 0 && completedTools.length === 0) {
+      console.warn(
+        `[SkillDispatcher] skill "${name}" softRequired 未调用 [${skill.tools.join(', ')}]，按"无变化"放行`
       );
     }
 

@@ -150,8 +150,8 @@
       en: 'Describe your action...',
     },
     'launcher.chatPlaceholderCustom': {
-      'zh-CN': '输入你自己的选择，可以接方括号【】来发送OOC指令...',
-      en: 'Type your own choice, use brackets [] to send OOC instructions...',
+      'zh-CN': '输入你自己的选择，可以接方括号【】来发送OOC指令',
+      en: 'Type your own choice, use brackets [] to send OOC instructions',
     },
     'choices.customLabel': {
       'zh-CN': '自定义',

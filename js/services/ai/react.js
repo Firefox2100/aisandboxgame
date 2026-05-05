@@ -727,6 +727,10 @@ class _AIServiceReactMixin {
           : '模型未按 function calling 协议返回叙事（commentary 也为空）';
 
         const emptyTextError = new Error(`Agent ReAct Error: ${msg}`);
+        // 错误类型分流：无上游 tool_choice 失败 = 模型本身不支持 function calling，
+        // 标记成 'no_function_calling' 让错误诊断对话框给玩家"切换模型 + 跳转设置"指引；
+        // 有上游失败 = provider 协议问题，沿用通用 unexpected_format 文案。
+        const errorTypeForDialog = upstreamFirst ? 'unexpected_format' : 'no_function_calling';
         this._markStepFailure(
           this.lastPayload.steps[this.lastPayload.steps.length - 1],
           emptyTextError,
@@ -736,7 +740,7 @@ class _AIServiceReactMixin {
             provider: reactLabel,
             model: reactModel,
             url: null,  // 函数 epilogue：无单一 url 概念（pipeline 多 stage 各自 url）
-            defaultErrorType: 'unexpected_format',
+            defaultErrorType: errorTypeForDialog,
             rootCause,
           }
         );
