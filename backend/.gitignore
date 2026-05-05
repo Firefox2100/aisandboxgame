@@ -1,0 +1,10 @@
+# Python environments
+.venv
+venv
+
+# Configurations
+.env
+
+# Dev database
+*.db
+*.sqlite
