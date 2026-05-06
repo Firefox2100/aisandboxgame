@@ -1225,6 +1225,21 @@ class _DesignServiceP1Mixin {
     }
     this.phase = 'p2';
     this.p2Stage = 0;
+    // P1 完整对话快照存进 designConfig，供 P2 各 stage prompt 直接读原文
+    // （而不是只读压缩后的五维 JSON）。reset 时随 designConfig 整体清空。
+    try {
+      const filtered = this._filterPersistableHistory(
+        Array.isArray(p1ChatHistory) ? p1ChatHistory : []
+      );
+      this.designConfig._p1ChatHistory = filtered.map(msg => {
+        const out = { sender: msg.sender, text: typeof msg.text === 'string' ? msg.text : '' };
+        if (msg.frameworkReady === true) out.frameworkReady = true;
+        return out;
+      });
+    } catch (err) {
+      console.warn('[DesignMode] _p1ChatHistory 快照失败（非致命）:', err);
+      this.designConfig._p1ChatHistory = [];
+    }
     try {
       this._designQnaPending = this._buildDesignQnaModule(
         this.p1Output,

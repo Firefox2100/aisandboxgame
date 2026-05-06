@@ -130,8 +130,10 @@
         document.getElementById('debug-btn')?.click();
         break;
       case 'sign-out':
-        window.accountStore?.mockSignOut?.();
-        showToast(getCopy().signOutSuccess);
+        // 真实退出：调用 boxhill /api/user/logout 并清本地缓存
+        Promise.resolve(window.accountStore?.signOut?.())
+          .catch(() => { /* 即使 boxhill 报错，本地状态已被 reset */ })
+          .finally(() => showToast(getCopy().signOutSuccess));
         break;
     }
   }

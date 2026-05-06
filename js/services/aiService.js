@@ -1059,10 +1059,13 @@ class AIService {
   }
 
   // 获取指定模块的 API Key
+  // 出口处统一 sanitize：剥离非 ASCII 字符（玩家粘贴 key 时易混入中文标点 / 全角空格 / emoji，
+  // 直接塞进 fetch header 会触发 "String contains non ISO-N-1 code point" 编码错误）
   getApiKeyForModule(module, options = {}) {
     const provider = this.getProviderForModule(module, options);
     const configSource = this._getConfigSource(options) || {};
-    return configSource.providerApiKeys?.[provider] || '';
+    const raw = configSource.providerApiKeys?.[provider] || '';
+    return window.apiKeySanitizer ? window.apiKeySanitizer.sanitize(raw) : raw;
   }
 
   // 推荐模式是否可用：当且仅当用户绑定了官方 DeepSeek API key。
@@ -1585,7 +1588,21 @@ class AIService {
       const baseUrl = this._normalizeProviderBaseUrl(item.baseUrl);
       const defaultModel = typeof item.defaultModel === 'string' ? item.defaultModel.trim() : '';
       const protocol = item.protocol === 'anthropic' ? 'anthropic' : 'openai';
-      acc.push({ id, name, baseUrl, defaultModel, protocol });
+      const maxOutputTokensEnabled = item.maxOutputTokensEnabled === true;
+      const rawMaxOutputTokens = Number(item.maxOutputTokens);
+      const maxOutputTokens =
+        Number.isFinite(rawMaxOutputTokens) && rawMaxOutputTokens > 0
+          ? Math.floor(rawMaxOutputTokens)
+          : null;
+      acc.push({
+        id,
+        name,
+        baseUrl,
+        defaultModel,
+        protocol,
+        maxOutputTokensEnabled,
+        maxOutputTokens,
+      });
       return acc;
     }, []);
 

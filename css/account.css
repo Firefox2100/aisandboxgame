@@ -409,6 +409,22 @@
   gap: 10px;
   padding-top: 4px;
 }
+.account-login-error {
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--status-danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-danger) 35%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--status-danger);
+  font-size: var(--text-caption);
+  line-height: 1.4;
+}
+.account-login-error[hidden] {
+  display: none;
+}
+.account-login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .account-login-input {
   padding: 10px 14px;
   background: var(--input-bg);

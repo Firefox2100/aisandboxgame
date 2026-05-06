@@ -582,6 +582,10 @@ class _AIServicePromptGmMixin {
         lines.push(`  ❌ ${skillSummary.error}`);
         continue;
       }
+      if (skillSummary.skipped) {
+        lines.push(`  ${skillSummary.note || '本回合无字段变化'}`);
+        continue;
+      }
       // 平铺关键字段（time/location/money/objective/custom_status）
       for (const [field, value] of Object.entries(skillSummary)) {
         if (value == null) continue;

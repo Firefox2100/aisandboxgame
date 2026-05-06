@@ -2386,6 +2386,14 @@ function _buildDiagnosisHtml(errorInfo, error, msgIdx) {
     body = '请求被 provider 拒掉了。具体原因看上面卡片里的 HTTP 状态和"服务端返回"，那两行会指出问题。';
   } else if (type === 'parse') {
     body = '服务器倒是给了响应，但返回的内容不是合法的 JSON，看起来是 provider 那边出了点临时故障。这种情况<strong>重试一次</strong>一般就好。';
+  } else if (type === 'no_function_calling') {
+    const esc = window.htmlSecurity?.escapeText || (s => String(s ?? ''));
+    const providerLabel = esc(info.provider || '');
+    const modelLabel = esc(info.model || '');
+    const modelDesc = providerLabel || modelLabel
+      ? `当前模型「<strong>${providerLabel}${providerLabel && modelLabel ? ' · ' : ''}${modelLabel}</strong>」`
+      : '当前模型';
+    body = `${modelDesc}没有按 function calling 协议返回内容——游戏主流程要求模型能调用 update_narrative 等工具，<strong>这个模型可能不支持工具调用</strong>。请到「设置 → API 设置」切换到支持 function calling 的模型（如 DeepSeek V4-Pro / Claude Sonnet / GPT-5 等）。<button class="" data-action="error-diagnosis-open-settings-btn">打开设置</button>`;
   } else if (type === 'unexpected_format') {
     body = 'provider 给了响应，但内容缺了我们期望的某些字段——大概率是模型这一次没按要求输出。<strong>重试一次</strong>，多半就正常了。';
   } else if (type === 'validation' || error?.code === 'DESIGN_VALIDATION_FAILED') {
@@ -2435,6 +2443,21 @@ function _handleErrorBannerClick(e) {
     return;
   }
 
+  // "打开设置"按钮（no_function_calling 分支）：关闭诊断对话框 + 跳到 API 设置 tab
+  const openSettingsBtn = e.target.closest('[data-action~="error-diagnosis-open-settings-btn"]');
+  if (openSettingsBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    const modal = document.getElementById('confirm-modal');
+    if (modal) modal.classList.add('hidden');
+    if (typeof window.openSettings === 'function') {
+      window.openSettings('api');
+    } else if (typeof showToast === 'function') {
+      showToast('设置入口不可用，请从右上角菜单打开设置');
+    }
+    return;
+  }
+
   // 排除卡片内"操作"按钮（设置入口、链接等）的点击
   if (e.target.closest('.chat-inline-action')) return;
   if (e.target.closest('a, button')) return;
@@ -2453,8 +2476,12 @@ function _handleErrorBannerClick(e) {
  * 复制当前 error 关联的 trace JSON 到剪贴板。
  * 优先按 failedPhase 找到对应的 lastPayload，调用 buildTraceDebugPayload 转 trace；
  * 没有匹配 payload 则兜底复制 errorMeta 摘要。
+ *
+ * 改为同步函数 + .then() 链：调用方（showConfirmModal cancel 回调）已是同步入口；
+ * 历史 async/await 写法在 iOS Safari 下 user activation 跨 microtask 不稳定，
+ * 改为同步触发 navigator.clipboard.writeText 让浏览器在调用瞬间识别到 user gesture。
  */
-async function _copyErrorTrace(error) {
+function _copyErrorTrace(error) {
   const { errorInfo, traceId, failedPhase } = _extractAIFailureMeta(error);
   const phase = failedPhase || errorInfo?.phase || '';
   const ai = window.aiService;
@@ -2480,19 +2507,29 @@ async function _copyErrorTrace(error) {
     textToCopy = JSON.stringify({ traceId, failedPhase: phase, errorInfo }, null, 2);
   }
 
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard
+      .writeText(textToCopy)
+      .then(() => {
+        if (typeof showToast === 'function') showToast('复制成功');
+      })
+      .catch(e => {
+        console.error('[ErrorDiagnosis] 复制失败:', e);
+        if (typeof showToast === 'function') showToast('复制失败');
+      });
+    return;
+  }
+
+  // execCommand 兜底（旧浏览器 / 非 HTTPS）
   try {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      await navigator.clipboard.writeText(textToCopy);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = textToCopy;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
+    const ta = document.createElement('textarea');
+    ta.value = textToCopy;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
     if (typeof showToast === 'function') showToast('复制成功');
   } catch (e) {
     console.error('[ErrorDiagnosis] 复制失败:', e);

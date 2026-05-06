@@ -18,9 +18,11 @@
     authStatus: 'guest', // 'guest' | 'signed_in'
 
     // 用户信息
+    userId: null, // boxhill 返回的数字 id；未登录为 null
     displayName: '',
     avatarUrl: '',
     email: '',
+    username: '', // boxhill 用户名（注册时与 email 相同）
 
     // 权益（独立字段，与 authStatus 正交）
     cloudSyncEnabled: false,
@@ -117,29 +119,82 @@
       return this._state.authStatus === 'signed_in' && this._state.tier !== 'free';
     },
 
-    // ────── Mock 辅助方法（第二阶段替换为真实 Supabase / 支付集成） ──────
+    // ────── 真实登录/注册（接入 boxhill new-api） ──────
 
     /**
-     * Mock 登录：根据邮箱构造一个 signed_in 状态。
-     * @param {{ email: string, displayName?: string, tier?: string }} payload
+     * 把 boxhill 返回的 user info 转成本 store 的字段并 update。
+     * @private
      */
-    mockSignIn(payload) {
-      if (!payload || !payload.email) return;
-      const fallbackName = String(payload.email).split('@')[0];
+    _applyBoxhillUser(user) {
+      if (!user || typeof user !== 'object') return;
+      const fallbackName =
+        user.display_name ||
+        user.username ||
+        (typeof user.email === 'string' ? user.email.split('@')[0] : '') ||
+        'User';
       this.update({
         authStatus: 'signed_in',
-        email: payload.email,
-        displayName: payload.displayName || fallbackName,
-        avatarUrl: '',
-        tier: payload.tier || 'free',
+        userId: user.id ?? null,
+        username: user.username || '',
+        email: user.email || '',
+        displayName: fallbackName,
+        avatarUrl: user.avatar_url || '',
+        tier: 'free', // 套餐目前不从 boxhill 同步，固定 free
         apiConsoleEnabled: true,
       });
     },
 
-    /** Mock 登出：恢复 guest 默认态。 */
-    mockSignOut() {
+    /**
+     * 真实登录
+     * @param {string} usernameOrEmail 玩家在登录框里输入的"邮箱"
+     * @param {string} password
+     * @returns {Promise<void>}
+     */
+    async signIn(usernameOrEmail, password) {
+      if (!window.authService) {
+        throw new Error('认证服务未加载，请刷新页面重试');
+      }
+      const user = await window.authService.login(usernameOrEmail, password);
+      this._applyBoxhillUser(user);
+    },
+
+    /**
+     * 真实注册（注册成功后自动登录）
+     * @param {string} email
+     * @param {string} password
+     * @returns {Promise<void>}
+     */
+    async signUp(email, password) {
+      if (!window.authService) {
+        throw new Error('认证服务未加载，请刷新页面重试');
+      }
+      const user = await window.authService.register(email, password);
+      this._applyBoxhillUser(user);
+    },
+
+    /**
+     * 退出登录
+     * @returns {Promise<void>}
+     */
+    async signOut() {
+      if (window.authService) {
+        try { await window.authService.logout(); } catch (_) { /* 清本地即可 */ }
+      }
       this.reset();
     },
+
+    /**
+     * 启动时恢复上次登录状态（仅本地，无服务器验证；token 失效后下次操作会被发现）
+     */
+    restoreSession() {
+      if (!window.authService) return;
+      const cached = window.authService.restoreFromLocal();
+      if (cached) {
+        this._applyBoxhillUser(cached);
+      }
+    },
+
+    // ────── Mock 辅助（保留：仅充值流程仍是 mock，登录已切真实） ──────
 
     /**
      * Mock 充值：在当前余额基础上增加 amount。
@@ -160,5 +215,8 @@
     window.GameEvents.ACCOUNT_CHANGED = ACCOUNT_CHANGED_EVENT;
   }
 
-  console.log('[AccountStore] Initialized (guest mode)');
+  // 启动时尝试恢复上次登录状态（authService 已先于本脚本加载）
+  AccountStore.restoreSession();
+
+  console.log('[AccountStore] Initialized', AccountStore.isSignedIn() ? '(restored signed-in)' : '(guest mode)');
 })();

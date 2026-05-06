@@ -748,7 +748,7 @@ function relocateInputIntoLatestChoices() {
   if (textbox) {
     textbox.setAttribute(
       'placeholder',
-      _i18n('launcher.chatPlaceholderCustom', '输入你自己的选择，可以接方括号【】来发送OOC指令...')
+      _i18n('launcher.chatPlaceholderCustom', '输入你自己的选择，可以接方括号【】来发送OOC指令')
     );
   }
   if (typeof autoResizeTextarea === 'function') autoResizeTextarea();

@@ -3477,6 +3477,34 @@
   grid-template-columns: 56px minmax(0, 1fr) auto;
 }
 
+#settings-modal .custom-provider-row .cp-field.cp-field-maxtokens {
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+
+#settings-modal .custom-provider-row .cp-maxtokens-value:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#settings-modal .custom-provider-row .cp-advanced-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 -2px;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+#settings-modal .custom-provider-row .cp-advanced-divider::before,
+#settings-modal .custom-provider-row .cp-advanced-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
 #settings-modal .custom-provider-row .cp-label {
   width: auto;
   text-align: left;
@@ -3720,6 +3748,10 @@
 #settings-modal .prompt-section .hint {
   margin: 0 0 6px;
   line-height: 1.45;
+}
+
+#settings-modal .prompt-section .hint .hint-readonly-suffix {
+  color: var(--status-danger);
 }
 
 /* 帮助面板在 settings-modal 中的样式精调 */
@@ -4331,6 +4363,15 @@
 
   #settings-modal .custom-provider-row .cp-field.cp-field-key .api-key-input-wrapper {
     min-width: 0;
+  }
+
+  #settings-modal .custom-provider-row .cp-field.cp-field-maxtokens {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  #settings-modal .custom-provider-row .cp-field.cp-field-maxtokens .cp-label {
+    grid-column: 1 / -1;
   }
 
   #settings-modal .custom-provider-row .cp-label {

@@ -1,6 +1,28 @@
 {
   "zh-CN": [
     {
+      "version": "3.1.0",
+      "date": "2026-05-05",
+      "changes": [
+        "优化API设置的功能和UI",
+        "修复已知bug"
+      ]
+    },
+    {
+      "version": "3.0.2",
+      "date": "2026-05-05",
+      "changes": [
+        "修复已知bug"
+      ]
+    },
+    {
+      "version": "3.0.1",
+      "date": "2026-05-05",
+      "changes": [
+        "修复已知bug"
+      ]
+    },
+    {
       "version": "3.0",
       "date": "2026-05-04",
       "changes": [
@@ -299,6 +321,28 @@
     }
   ],
   "en": [
+    {
+      "version": "3.1.0",
+      "date": "2026-05-05",
+      "changes": [
+        "Improved API settings functionality and UI.",
+        "Fixed known bugs."
+      ]
+    },
+    {
+      "version": "3.0.2",
+      "date": "2026-05-05",
+      "changes": [
+        "Fixed known bugs."
+      ]
+    },
+    {
+      "version": "3.0.1",
+      "date": "2026-05-05",
+      "changes": [
+        "Fixed known bugs."
+      ]
+    },
     {
       "version": "3.0",
       "date": "2026-05-04",

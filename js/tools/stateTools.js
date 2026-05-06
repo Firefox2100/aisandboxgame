@@ -42,7 +42,7 @@
             hour: { type: 'number', description: '小时 (0-23)' },
             minute: { type: 'number', description: '分钟 (0-59)' },
           },
-          required: ['year', 'month', 'day', 'hour', 'minute'],
+          required: ['year', 'month', 'day', 'hour'],
         },
         location: {
           type: 'object',

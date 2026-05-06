@@ -1264,26 +1264,29 @@ class _DesignServiceP2Mixin {
     const p1 = this.p1Output;
     const dc = this.designConfig;
     const s3 = this._serializeStep3FieldsForPrompt();
+    const p1History = dc._p1ChatHistory;
 
     switch (stage) {
       case 1: // World Setting
         if (mode === 'minimal') {
-          return _getDesignPromptValue('PHASE2_STAGE1_MINIMAL', PHASE2_STAGE1_MINIMAL)(p1, s3);
+          return _getDesignPromptValue('PHASE2_STAGE1_MINIMAL', PHASE2_STAGE1_MINIMAL)(p1, s3, p1History);
         }
-        return _getDesignPromptValue('PHASE2_STAGE_PROMPTS', PHASE2_STAGE_PROMPTS)[0](p1, s3);
+        return _getDesignPromptValue('PHASE2_STAGE_PROMPTS', PHASE2_STAGE_PROMPTS)[0](p1, s3, p1History);
 
       case 2: // Prompt Modules (Rules) — 依赖 World
         if (mode === 'simplified') {
           return _getDesignPromptValue('PHASE2_STAGE2_SIMPLIFIED', PHASE2_STAGE2_SIMPLIFIED)(
             p1,
             dc.world_setting,
-            s3
+            s3,
+            p1History
           );
         }
         return _getDesignPromptValue('PHASE2_STAGE_PROMPTS', PHASE2_STAGE_PROMPTS)[1](
           p1,
           dc.world_setting,
-          s3
+          s3,
+          p1History
         );
 
       case 3: // Character Database + Relationship Rules — 依赖 World + Rules
@@ -1291,7 +1294,8 @@ class _DesignServiceP2Mixin {
           p1,
           dc.world_setting,
           dc.prompt_modules,
-          s3
+          s3,
+          p1History
         );
 
       case 4: // Timeline + Character Timelines — 依赖 World + Rules + Chars
@@ -1301,7 +1305,8 @@ class _DesignServiceP2Mixin {
             dc.world_setting,
             dc.prompt_modules,
             dc.character_database,
-            s3
+            s3,
+            p1History
           );
         }
         return _getDesignPromptValue('PHASE2_STAGE_PROMPTS', PHASE2_STAGE_PROMPTS)[3](
@@ -1309,7 +1314,8 @@ class _DesignServiceP2Mixin {
           dc.world_setting,
           dc.prompt_modules,
           dc.character_database,
-          s3
+          s3,
+          p1History
         );
 
       default:
