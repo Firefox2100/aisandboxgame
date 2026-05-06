@@ -1,20 +1,25 @@
 from contextlib import asynccontextmanager
 import uvicorn
-from starlette.middleware.sessions import SessionMiddleware
 from fastapi import FastAPI
 from databases import Database
+from redis.asyncio import Redis
 
 from sandbox_game.etc.consts import CONFIG, LOGGER
-from sandbox_game.service import DatabaseService
+from sandbox_game.service import CacheService, DatabaseService
 from sandbox_game.router import auth_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    client = Database(CONFIG.database_url)
-    await client.connect()
+    db_client = Database(CONFIG.database_url)
+    await db_client.connect()
+    app.state.db = DatabaseService(db_client)
 
-    app.state.db = DatabaseService(client)
+    redis_client = Redis(
+        host=CONFIG.redis_host,
+        port=CONFIG.redis_port,
+    )
+    app.state.cache = CacheService(redis_client)
 
     try:
         yield
@@ -22,8 +27,8 @@ async def lifespan(app: FastAPI):
         LOGGER.critical('Fatal error during application lifespan: %s', e, exc_info=True)
         raise e
     finally:
-        # TODO: Clean up resources here
-        pass
+        await db_client.disconnect()
+        await redis_client.aclose()
 
 
 def create_app():
@@ -31,13 +36,6 @@ def create_app():
         title='AI Sandbox Game',
         description='A highly customizable, local-first text RPG driven by LLMs.',
         lifespan=lifespan,
-    )
-
-    app.add_middleware(
-        SessionMiddleware,
-        secret_key=CONFIG.secret_key,
-        same_site='lax',
-        https_only=CONFIG.use_https,
     )
 
     app.include_router(auth_router)
