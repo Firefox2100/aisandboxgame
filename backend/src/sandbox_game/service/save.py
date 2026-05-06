@@ -222,7 +222,7 @@ class SaveService:
         save = self.normalize(
             world_card_id,
             slot_id,
-            {'name': name, **existing.model_dump(mode='json')},
+            {**existing.model_dump(mode='json'), 'name': name},
             existing=existing,
             touch_progress=False,
         )

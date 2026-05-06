@@ -454,7 +454,7 @@ class DatabaseService:
     async def get_current_save_slot(self, user_id: int, world_card_id: str) -> str | None:
         async with self._engine.begin() as conn:
             world_state_repo = WorldStateRepository(conn)
-            return (await world_state_repo.get_current_slots(user_id))[world_card_id]
+            return (await world_state_repo.get_current_slots(user_id)).get(world_card_id)
 
     async def set_current_save_slot(self, user_id: int, world_card_id: str, slot_id: str | None):
         async with self._engine.begin() as conn:

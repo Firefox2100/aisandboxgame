@@ -69,11 +69,13 @@ class WorldCardService:
         if not isinstance(snapshot, dict):
             return False
 
-        settings = snapshot.get('world_setting', {}).get('settings')
+        world_setting = snapshot.get('world_setting') or {}
+        settings = world_setting.get('settings') if isinstance(world_setting, dict) else None
         if isinstance(settings, dict) and self._has_meaningful_value(settings):
             return True
 
-        modules = snapshot.get('prompt_modules', {}).get('modules')
+        prompt_modules = snapshot.get('prompt_modules') or {}
+        modules = prompt_modules.get('modules') if isinstance(prompt_modules, dict) else None
         if isinstance(modules, dict) and any(
             isinstance(value, str) and value.strip() for value in modules.values()
         ):
@@ -84,7 +86,8 @@ class WorldCardService:
             if isinstance(value, dict) and self._has_meaningful_value(value):
                 return True
 
-        events = snapshot.get('timeline', {}).get('events')
+        timeline = snapshot.get('timeline') or {}
+        events = timeline.get('events') if isinstance(timeline, dict) else None
         return isinstance(events, list) and any(isinstance(event, dict) for event in events)
 
     def _normalize_card_payload(self,
