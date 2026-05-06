@@ -7,6 +7,12 @@ class CustomLlmProviderType(Enum):
 
 class LlmProviderType(Enum):
     OPENAI = 'openai'
+    DEEPSEEK = 'deepseek'
+    ANTHROPIC = 'anthropic'
+    GEMINI = 'gemini'
+    GROK = 'grok'
+    SILICONFLOW = 'siliconflow'
+    OPENROUTER = 'openrouter'
     CUSTOM = 'custom'
 
 

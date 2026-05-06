@@ -25,3 +25,30 @@ class ApiKey(BaseModel):
         ...,
         description='The ID of the custom provider that this API key is used for, if applicable.',
     )
+
+
+class ApiKeyStoreRequest(BaseModel):
+    provider: LlmProviderType = Field(
+        ...,
+        description='The LLM provider that this API key is associated with.',
+    )
+    api_key: str = Field(
+        ...,
+        description='The raw API key. It is stored in KMS, not the application database.',
+    )
+    custom_provider_id: Optional[int] = Field(
+        default=None,
+        description='The custom provider id when provider is custom.',
+    )
+
+
+class ApiKeyStatus(BaseModel):
+    provider: LlmProviderType = Field(
+        ...,
+    )
+    custom_provider_id: Optional[int] = Field(
+        default=None,
+    )
+    exists: bool = Field(
+        ...,
+    )

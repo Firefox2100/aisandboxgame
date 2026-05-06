@@ -3,7 +3,7 @@ from starlette import status
 
 from sandbox_game.etc.enums import UserRole
 from sandbox_game.model.user import User
-from sandbox_game.service import CacheService, DatabaseService
+from sandbox_game.service import CacheService, DatabaseService, KmsService
 
 
 def get_cache(request: Request) -> CacheService:
@@ -12,6 +12,16 @@ def get_cache(request: Request) -> CacheService:
 
 def get_db(request: Request) -> DatabaseService:
     return request.app.state.db
+
+
+def get_kms(request: Request) -> KmsService:
+    kms = request.app.state.kms
+    if not kms:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='KMS is not configured.',
+        )
+    return kms
 
 
 async def authenticate_user(session_id: str = Cookie(None),

@@ -40,6 +40,30 @@ class Settings(BaseSettings):
         ...,
         description='Database connection string for the application',
     )
+    redis_host: str = Field(
+        'localhost',
+        description='Redis host for session storage.',
+    )
+    redis_port: int = Field(
+        6379,
+        description='Redis port for session storage.',
+    )
+    vault_url: str = Field(
+        'http://localhost:8200',
+        description='Hashicorp Vault URL for secret management.',
+    )
+    vault_app_role_id: Optional[str] = Field(
+        None,
+        description='Hashicorp Vault App Role ID for secret management.',
+    )
+    vault_app_secret_id: Optional[str] = Field(
+        None,
+        description='Hashicorp Vault App Secret ID for secret management.',
+    )
+    vault_kv_path: str = Field(
+        'sandbox-game',
+        description='The mounting path of the KV engine used for secret management.',
+    )
 
 
 CONFIG = Settings(_env_file=os.getenv('SG_ENV_FILE', '.env'))   # type: ignore

@@ -1,0 +1,21 @@
+{
+  "typeValues": ["explore", "trade", "travel", "work", "talk", "action"],
+  "typeDisplayLabels": {
+    "explore": "探索",
+    "trade": "交易",
+    "travel": "旅行",
+    "work": "耗时",
+    "talk": "交谈",
+    "action": "行动"
+  },
+  "timeMatrix": {
+    "explore": "medium",
+    "trade": "low",
+    "travel": "extra",
+    "work": "extra",
+    "talk": "low",
+    "action": "low"
+  },
+  "dayTypes": ["travel", "work"],
+  "moneyTypes": ["trade", "work"]
+}

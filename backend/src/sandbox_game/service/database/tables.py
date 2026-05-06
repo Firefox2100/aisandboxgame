@@ -1,4 +1,4 @@
-from sqlalchemy import Table, Column, MetaData, Integer, Boolean, String, ForeignKey
+from sqlalchemy import Table, Column, MetaData, Integer, Boolean, String, ForeignKey, Text, UniqueConstraint
 
 
 METADATA = MetaData()
@@ -20,6 +20,47 @@ CUSTOM_LLM_PROVIDER_TABLE = Table(
     Column('name', String, unique=True, nullable=False),
     Column('url', String, nullable=False),
     Column('type', String, nullable=False),
+)
+
+
+WORLD_CARD_TABLE = Table(
+    'world_cards',
+    METADATA,
+    Column('id', String, primary_key=True),
+    Column('owner_user_id', Integer, ForeignKey('users.id'), nullable=True),
+    Column('name', String, nullable=False),
+    Column('description', Text, nullable=False),
+    Column('created_at', String, nullable=False),
+    Column('updated_at', String, nullable=False),
+    Column('is_built_in', Boolean, nullable=False, default=False),
+    Column('is_empty', Boolean, nullable=False, default=False),
+    Column('content_locale', String, nullable=False),
+    Column('payload', Text, nullable=False),
+)
+
+
+USER_WORLD_STATE_TABLE = Table(
+    'user_world_state',
+    METADATA,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('active_world_card_id', String, nullable=True),
+    Column('current_slots', Text, nullable=False, default='{}'),
+)
+
+
+SAVE_SLOT_TABLE = Table(
+    'save_slots',
+    METADATA,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('world_card_id', String, primary_key=True),
+    Column('slot_id', String, primary_key=True),
+    Column('name', String, nullable=False),
+    Column('created_at', String, nullable=False),
+    Column('updated_at', String, nullable=False),
+    Column('progress_updated_at', String, nullable=False),
+    Column('schema_version', Integer, nullable=False),
+    Column('payload', Text, nullable=False),
+    UniqueConstraint('user_id', 'world_card_id', 'slot_id', name='uq_save_slot'),
 )
 
 
