@@ -1,6 +1,7 @@
 from fastapi import Request, Cookie, Depends, HTTPException
 from starlette import status
 
+from sandbox_game.etc.enums import UserRole
 from sandbox_game.model.user import User
 from sandbox_game.service import CacheService, DatabaseService
 
@@ -30,3 +31,13 @@ async def authenticate_user(session_id: str = Cookie(None),
         )
 
     return session_data[0]
+
+
+async def authenticate_admin(user: User = Depends(authenticate_user)):
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='User does not have access to this resource.',
+        )
+
+    return user

@@ -17,6 +17,16 @@ class AuthenticationError(SandboxGameException):
         super().__init__(message, status_code)
 
 
+class LlmProviderNotFound(SandboxGameException):
+    def __init__(self,
+                 provider_identifier: int | str,
+                 ):
+        super().__init__(
+            message=f'LLM Provider {provider_identifier} not found.',
+            status_code=404,
+        )
+
+
 class UserNotFound(SandboxGameException):
     def __init__(self,
                  username: str,

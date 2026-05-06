@@ -2,10 +2,58 @@ from argon2.exceptions import VerifyMismatchError
 from databases import Database
 
 from sandbox_game.etc.consts import PH
-from sandbox_game.etc.enums import UserRole
-from sandbox_game.etc.errors import AuthenticationError, UserNotFound
+from sandbox_game.etc.enums import UserRole, CustomLlmProviderType
+from sandbox_game.etc.errors import AuthenticationError, LlmProviderNotFound, UserNotFound
+from sandbox_game.model.custom_llm_provider import CustomLlmProviderCreate, CustomLlmProvider
 from sandbox_game.model.user import UserCreate, User
 from .tables import USER_TABLE
+
+
+class CustomLlmProviderRepository:
+    def __init__(self, db: Database):
+        self._db = db
+
+    async def create(self,
+                     provider: CustomLlmProviderCreate,
+                     ) -> int:
+        payload = {
+            'name': provider.name,
+            'type': provider.provider.value,
+            'url': provider.url,
+        }
+        query = USER_TABLE.insert().values(**payload)
+
+        result = await self._db.execute(query)
+        return result
+
+    async def get(self, provider_id: int) -> CustomLlmProvider:
+        query = USER_TABLE.select().where(USER_TABLE.c.id == provider_id)
+        record = await self._db.fetch_one(query)
+
+        if not record:
+            raise LlmProviderNotFound(provider_id)
+
+        return CustomLlmProvider(
+            provider_id=record['id'],
+            name=record['name'],
+            provider=CustomLlmProviderType(record['type']),
+            url=record['url'],
+        )
+
+    async def list(self) -> list[CustomLlmProvider]:
+        query = USER_TABLE.select()
+        records = await self._db.fetch_all(query)
+
+        providers = []
+        for record in records:
+            providers.append(CustomLlmProvider(
+                provider_id=record['id'],
+                name=record['name'],
+                provider=CustomLlmProviderType(record['type']),
+                url=record['url'],
+            ))
+
+        return providers
 
 
 class UserRepository:
@@ -36,8 +84,7 @@ class UserRepository:
         query = USER_TABLE.insert().values(**payload)
 
         result = await self._db.execute(query)
-
-        return result.lastrowid
+        return result
 
     async def get_by_username(self,
                               username: str,
@@ -60,6 +107,7 @@ class DatabaseService:
     def __init__(self, db: Database):
         self._db = db
 
+        self._custom_llm_provider = CustomLlmProviderRepository(db)
         self._user = UserRepository(db)
 
     async def create_user(self,
@@ -100,3 +148,16 @@ class DatabaseService:
             raise AuthenticationError('Failed to invoke Argon2 password hasher.') from e
 
         return user
+
+    async def create_custom_llm_provider(self, provider: CustomLlmProviderCreate) -> CustomLlmProvider:
+        provider_id = await self._custom_llm_provider.create(provider)
+
+        return CustomLlmProvider(
+            provider_id=provider_id,
+            name=provider.name,
+            provider=provider.provider,
+            url=provider.url,
+        )
+
+    async def list_custom_llm_providers(self) -> list[CustomLlmProvider]:
+        return await self._custom_llm_provider.list()

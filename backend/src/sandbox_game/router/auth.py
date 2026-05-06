@@ -48,7 +48,7 @@ async def set_login_session(response: Response,
     )
 
 
-@auth_router.get('/register', response_model=User)
+@auth_router.post('/register', response_model=User)
 async def user_registration(user: UserCreate,
                             response: Response,
                             cache: CacheService = Depends(get_cache),

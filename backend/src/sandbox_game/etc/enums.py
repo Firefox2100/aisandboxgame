@@ -1,12 +1,11 @@
 from enum import Enum
 
 
-class CustomLlmProvider(Enum):
+class CustomLlmProviderType(Enum):
     OLLAMA = 'ollama'
-    OPENAI_COMPATIBLE = 'openai_compatible'
 
 
-class LlmProvider(Enum):
+class LlmProviderType(Enum):
     OPENAI = 'openai'
     CUSTOM = 'custom'
 
