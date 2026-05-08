@@ -5,11 +5,95 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncConnection, create_async_en
 from sandbox_game.etc.consts import PH
 from sandbox_game.etc.enums import UserRole, CustomLlmProviderType
 from sandbox_game.etc.errors import AuthenticationError, LlmProviderNotFound, UserNotFound
-from sandbox_game.model.custom_llm_provider import CustomLlmProviderCreate, CustomLlmProvider
+from sandbox_game.model.config import SystemConfig, UserConfig, UserConfigUpdate
+from sandbox_game.model.custom_llm_provider import CustomLlmProviderCreate, CustomLlmProvider, CustomLlmProviderUpdate
 from sandbox_game.model.save import GameSave
 from sandbox_game.model.user import UserCreate, User
 from sandbox_game.model.world_card import WorldCard
-from .tables import CUSTOM_LLM_PROVIDER_TABLE, SAVE_SLOT_TABLE, USER_TABLE, USER_WORLD_STATE_TABLE, WORLD_CARD_TABLE
+from .tables import CONFIG_TABLE, CUSTOM_LLM_PROVIDER_TABLE, SAVE_SLOT_TABLE, USER_CONFIG_TABLE, USER_TABLE, \
+    USER_WORLD_STATE_TABLE, WORLD_CARD_TABLE
+
+
+SYSTEM_CONFIG_KEY = 'system'
+USER_LOCALE_CONFIG_KEY = 'locale'
+
+
+class ConfigRepository:
+    def __init__(self, conn: AsyncConnection):
+        self._conn = conn
+
+    async def get(self,
+                  key: str,
+                  ) -> str | None:
+        query = CONFIG_TABLE.select().where(CONFIG_TABLE.c.key == key)
+        result = await self._conn.execute(query)
+        record = result.mappings().first()
+        return record['value'] if record else None
+
+    async def set(self,
+                  key: str,
+                  value: str,
+                  ):
+        existing_result = await self._conn.execute(CONFIG_TABLE.select().where(CONFIG_TABLE.c.key == key))
+        existing = existing_result.mappings().first()
+        if existing:
+            query = CONFIG_TABLE.update().where(CONFIG_TABLE.c.key == key).values(value=value)
+        else:
+            query = CONFIG_TABLE.insert().values(key=key, value=value)
+        await self._conn.execute(query)
+
+    async def get_id(self,
+                     key: str,
+                     ) -> int | None:
+        query = CONFIG_TABLE.select().where(CONFIG_TABLE.c.key == key)
+        result = await self._conn.execute(query)
+        record = result.mappings().first()
+        return record['id'] if record else None
+
+    async def ensure_id(self,
+                        key: str,
+                        default_value: str,
+                        ) -> int:
+        config_id = await self.get_id(key)
+        if config_id is not None:
+            return config_id
+        result = await self._conn.execute(CONFIG_TABLE.insert().values(key=key, value=default_value))
+        return result.inserted_primary_key[0]
+
+    async def get_user_value(self,
+                             user_id: int,
+                             key: str,
+                             ) -> str | None:
+        config_id = await self.get_id(key)
+        if config_id is None:
+            return None
+        query = USER_CONFIG_TABLE.select().where(
+            (USER_CONFIG_TABLE.c.user_id == user_id) &
+            (USER_CONFIG_TABLE.c.config_id == config_id)
+        )
+        result = await self._conn.execute(query)
+        record = result.mappings().first()
+        return record['value'] if record else None
+
+    async def set_user_value(self,
+                             user_id: int,
+                             key: str,
+                             value: str,
+                             ):
+        config_id = await self.ensure_id(key, '')
+        existing_result = await self._conn.execute(USER_CONFIG_TABLE.select().where(
+            (USER_CONFIG_TABLE.c.user_id == user_id) &
+            (USER_CONFIG_TABLE.c.config_id == config_id)
+        ))
+        existing = existing_result.mappings().first()
+        if existing:
+            query = USER_CONFIG_TABLE.update().where(
+                (USER_CONFIG_TABLE.c.user_id == user_id) &
+                (USER_CONFIG_TABLE.c.config_id == config_id)
+            ).values(value=value)
+        else:
+            query = USER_CONFIG_TABLE.insert().values(user_id=user_id, config_id=config_id, value=value)
+        await self._conn.execute(query)
 
 
 class CustomLlmProviderRepository:
@@ -60,6 +144,34 @@ class CustomLlmProviderRepository:
 
         return providers
 
+    async def update(self,
+                     provider_id: int,
+                     provider: CustomLlmProviderUpdate,
+                     ) -> CustomLlmProvider:
+        payload = {
+            'name': provider.name,
+            'type': provider.provider.value,
+            'url': provider.url,
+        }
+        query = (
+            CUSTOM_LLM_PROVIDER_TABLE.update()
+            .where(CUSTOM_LLM_PROVIDER_TABLE.c.id == provider_id)
+            .values(**payload)
+        )
+        result = await self._conn.execute(query)
+        if result.rowcount == 0:
+            raise LlmProviderNotFound(provider_id)
+
+        return await self.get(provider_id)
+
+    async def delete(self,
+                     provider_id: int,
+                     ) -> None:
+        query = CUSTOM_LLM_PROVIDER_TABLE.delete().where(CUSTOM_LLM_PROVIDER_TABLE.c.id == provider_id)
+        result = await self._conn.execute(query)
+        if result.rowcount == 0:
+            raise LlmProviderNotFound(provider_id)
+
 
 class UserRepository:
     """
@@ -105,6 +217,39 @@ class UserRepository:
             user_id=record['id'],
             username=record['username'],
             password_hash=record['password_hash'],
+            role=UserRole(record['role']),
+        )
+
+    async def list(self) -> list[User]:
+        query = USER_TABLE.select().order_by(USER_TABLE.c.id)
+        result = await self._conn.execute(query)
+        records = result.mappings().all()
+        return [
+            User(
+                user_id=record['id'],
+                username=record['username'],
+                password_hash=None,
+                role=UserRole(record['role']),
+            )
+            for record in records
+        ]
+
+    async def update_role(self,
+                          user_id: int,
+                          role: UserRole,
+                          ) -> User:
+        query = USER_TABLE.update().where(USER_TABLE.c.id == user_id).values(role=role.value)
+        result = await self._conn.execute(query)
+        if result.rowcount == 0:
+            raise UserNotFound(username=str(user_id))
+
+        select_query = USER_TABLE.select().where(USER_TABLE.c.id == user_id)
+        select_result = await self._conn.execute(select_query)
+        record = select_result.mappings().first()
+        return User(
+            user_id=record['id'],
+            username=record['username'],
+            password_hash=None,
             role=UserRole(record['role']),
         )
 
@@ -334,6 +479,59 @@ class DatabaseService:
     def __init__(self, engine: AsyncEngine):
         self._engine = engine
 
+    async def get_system_config(self) -> SystemConfig:
+        async with self._engine.begin() as conn:
+            config_repo = ConfigRepository(conn)
+            raw = await config_repo.get(SYSTEM_CONFIG_KEY)
+        if not raw:
+            return SystemConfig()
+        try:
+            return SystemConfig.model_validate(json.loads(raw))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return SystemConfig()
+
+    async def update_system_config(self,
+                                   config: SystemConfig,
+                                   ) -> SystemConfig:
+        async with self._engine.begin() as conn:
+            config_repo = ConfigRepository(conn)
+            await config_repo.set(
+                SYSTEM_CONFIG_KEY,
+                config.model_dump_json(),
+            )
+        return config
+
+    async def get_user_config(self,
+                              user_id: int,
+                              ) -> UserConfig:
+        async with self._engine.begin() as conn:
+            config_repo = ConfigRepository(conn)
+            locale = await config_repo.get_user_value(user_id, USER_LOCALE_CONFIG_KEY)
+        return UserConfig(locale=locale or 'zh_cn')
+
+    async def update_user_config(self,
+                                 user_id: int,
+                                 config: UserConfigUpdate,
+                                 ) -> UserConfig:
+        normalized_locale = config.locale if config.locale in {'zh_cn', 'en_us'} else 'zh_cn'
+        async with self._engine.begin() as conn:
+            config_repo = ConfigRepository(conn)
+            await config_repo.set_user_value(user_id, USER_LOCALE_CONFIG_KEY, normalized_locale)
+        return UserConfig(locale=normalized_locale)
+
+    async def list_users(self) -> list[User]:
+        async with self._engine.begin() as conn:
+            user_repo = UserRepository(conn)
+            return await user_repo.list()
+
+    async def update_user_role(self,
+                               user_id: int,
+                               role: UserRole,
+                               ) -> User:
+        async with self._engine.begin() as conn:
+            user_repo = UserRepository(conn)
+            return await user_repo.update_role(user_id, role)
+
     async def create_user(self,
                           user: UserCreate,
                           role: UserRole = UserRole.USER,
@@ -398,6 +596,21 @@ class DatabaseService:
         async with self._engine.begin() as conn:
             custom_llm_provider_repo = CustomLlmProviderRepository(conn)
             return await custom_llm_provider_repo.get(provider_id)
+
+    async def update_custom_llm_provider(self,
+                                         provider_id: int,
+                                         provider: CustomLlmProviderUpdate,
+                                         ) -> CustomLlmProvider:
+        async with self._engine.begin() as conn:
+            custom_llm_provider_repo = CustomLlmProviderRepository(conn)
+            return await custom_llm_provider_repo.update(provider_id, provider)
+
+    async def delete_custom_llm_provider(self,
+                                         provider_id: int,
+                                         ) -> None:
+        async with self._engine.begin() as conn:
+            custom_llm_provider_repo = CustomLlmProviderRepository(conn)
+            await custom_llm_provider_repo.delete(provider_id)
 
     async def upsert_world_card(self,
                                 user_id: int | None,

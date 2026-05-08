@@ -57,6 +57,13 @@ async def user_registration(user: UserCreate,
     """
     Register a new user.
     """
+    system_config = await db.get_system_config()
+    if not system_config.registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Registration is disabled.',
+        )
+
     user = await db.create_user(user)
 
     await set_login_session(

@@ -10,8 +10,9 @@ from sandbox_game.model.llm import (
     OocNormalizeRequest,
     SmsGenerateRequest,
 )
+from sandbox_game.model.expansion import CharacterExpansionData, WorldExpansionData
 from sandbox_game.model.user import User
-from sandbox_game.service import DatabaseService, KmsService
+from sandbox_game.service import DatabaseService, ExpansionService, KmsService
 from sandbox_game.service.llm.service import LlmService
 from sandbox_game.service.react_pipeline import ReactPipelineService
 from sandbox_game.service.save import SaveService
@@ -31,6 +32,16 @@ async def resolve_llm_config_and_key(llm: LlmModuleConfig,
                                      user: User,
                                      ) -> tuple[LlmModuleConfig, str]:
     llm_config = llm.model_copy(deep=True)
+    system_config = await db.get_system_config()
+    if (
+        llm_config.provider.value != 'custom' and
+        llm_config.provider in system_config.disabled_builtin_llm_providers
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Selected LLM provider is disabled.',
+        )
+
     if llm_config.provider.value == 'custom':
         if llm_config.custom_provider_id is None:
             raise HTTPException(
@@ -108,6 +119,7 @@ async def generate_turn(request: GenerateTurnRequest,
                 text=response.text,
                 model_label=response.model,
                 provider_key=response.provider.value,
+                react_segments=response.data.react_segments,
                 game_data=ChatGameData(
                     panel_status=response.data.panel_status.model_dump(mode='json')
                     if response.data.panel_status else None,
@@ -198,6 +210,20 @@ async def generate_turn(request: GenerateTurnRequest,
                 **inventory,
                 'items': list(by_name.values()),
             }
+        expansion_service = ExpansionService()
+        for event in response.data.timeline_events:
+            if not isinstance(event, dict) or not isinstance(event.get('content'), dict):
+                continue
+            if event.get('type') == 'world_expansion':
+                expansion_service.apply_world_to_save(
+                    save_payload,
+                    WorldExpansionData.model_validate(event['content']),
+                )
+            if event.get('type') == 'character_expansion':
+                expansion_service.apply_characters_to_save(
+                    save_payload,
+                    CharacterExpansionData.model_validate(event['content']),
+                )
         if response.data.npc_updates:
             npc_data = save_payload.get('npc_data') or {}
             active_npcs = dict(npc_data.get('npc_data') or {})

@@ -2,6 +2,7 @@ from enum import Enum
 
 
 class CustomLlmProviderType(Enum):
+    OPENAI_COMPATIBLE = 'openai-compatible'
     OLLAMA = 'ollama'
 
 

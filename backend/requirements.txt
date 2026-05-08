@@ -1,9 +1,10 @@
 aiomysql==0.3.2
 aiosqlite==0.22.1
+alembic==1.18.4
 argon2-cffi==25.1.0
 fastapi==0.136.1
 hvac==2.4.0
-pydantic==2.13.3
+pydantic==2.13.4
 pydantic-ai==1.90.0
 pydantic-settings==2.14.0
 pymysql==1.1.3

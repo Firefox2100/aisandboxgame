@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from sandbox_game.model.llm import InventoryDelta, PanelStatusUpdate, TurnChoice
+from sandbox_game.model.expansion import CharacterExpansionData, WorldExpansionData
 from sandbox_game.model.save import GameSave
 from sandbox_game.model.world_card import WorldCard
 
@@ -262,6 +263,8 @@ class ReactToolContext:
         self.sms_messages: list[dict[str, Any]] = []
         self.notifications: list[dict[str, Any]] = []
         self.npc_updates: list[dict[str, Any]] = []
+        self.world_expansions: list[WorldExpansionData] = []
+        self.character_expansions: list[CharacterExpansionData] = []
         self.tool_log: list[dict[str, Any]] = []
 
     def get_state(self) -> ToolResult:
@@ -609,8 +612,39 @@ class ReactToolContext:
             'sms_messages': self.sms_messages,
             'notifications': self.notifications,
             'npc_updates': self.npc_updates,
+            'world_expansions': [item.model_dump(mode='json', by_alias=True) for item in self.world_expansions],
+            'character_expansions': [
+                item.model_dump(mode='json', by_alias=True)
+                for item in self.character_expansions
+            ],
             'tool_log': self.tool_log,
         }
+
+    def register_world_expansion(self,
+                                 data: WorldExpansionData,
+                                 ) -> ToolResult:
+        self.world_expansions.append(data)
+        return self._record(
+            'update_new_world',
+            {'settings': list(data.settings.keys())},
+            {
+                'added_ids': list(data.settings.keys()),
+                'summary': data.summary,
+            },
+        )
+
+    def register_character_expansion(self,
+                                     data: CharacterExpansionData,
+                                     ) -> ToolResult:
+        self.character_expansions.append(data)
+        return self._record(
+            'update_new_characters',
+            {'character_ids': list(data.character_database.keys())},
+            {
+                'added_ids': list(data.character_database.keys()),
+                'summary': data.summary,
+            },
+        )
 
     def available_rule_modules(self) -> list[str]:
         return sorted(self._prompt_modules(self._world_snapshot()).keys())
@@ -654,6 +688,8 @@ class ReactToolContext:
                 key: value for key, value in self.save.npc_data.predefined_pool.items()
                 if isinstance(value, dict) and not key.startswith('_')
             })
+        for expansion in self.character_expansions:
+            candidates.update(expansion.character_database)
         snapshot = self._world_snapshot()
         char_db = snapshot.get('character_database') or {}
         for key, value in char_db.items():
@@ -692,6 +728,8 @@ class ReactToolContext:
         if self.save and self.save.entities:
             for key, value in self.save.entities.entities.items():
                 entities[key] = value.text
+        for expansion in self.world_expansions:
+            entities.update(expansion.settings)
         return entities
 
     def _timeline_events(self, snapshot: dict[str, Any]) -> list[dict[str, Any]]:

@@ -22,11 +22,16 @@ async def lifespan(app: FastAPI):
     app.state.cache = CacheService(redis_client)
 
     app.state.kms = None
-    if CONFIG.vault_app_role_id and CONFIG.vault_app_secret_id:
-        kms_client = Client(
-            url=CONFIG.vault_url,
-            strict_http=True,
-        )
+    kms_client = Client(
+        url=CONFIG.vault_url,
+        strict_http=True,
+    )
+    if CONFIG.vault_token:
+        LOGGER.warning('Using token for Hashicorp Vault authentication. This is not secure and should '
+                       'only be used for local development.')
+        kms_client.token = CONFIG.vault_token
+        app.state.kms = KmsService(kms_client)
+    elif CONFIG.vault_app_role_id and CONFIG.vault_app_secret_id:
         kms_client.auth.approle.login(
             role_id=CONFIG.vault_app_role_id,
             secret_id=CONFIG.vault_app_secret_id,
@@ -41,6 +46,7 @@ async def lifespan(app: FastAPI):
     finally:
         await engine.dispose()
         await redis_client.aclose()
+        kms_client.adapter.close()
 
 
 def create_app():
@@ -50,11 +56,9 @@ def create_app():
         lifespan=lifespan,
     )
 
-    app.include_router(auth_router)
-    app.include_router(config_router)
-    app.include_router(world_card_router)
-    app.include_router(save_router)
-    app.include_router(chat_router)
+    for router in (auth_router, config_router, world_card_router, save_router, chat_router):
+        app.include_router(router, prefix='/api')
+        app.include_router(router)
 
     return app
 

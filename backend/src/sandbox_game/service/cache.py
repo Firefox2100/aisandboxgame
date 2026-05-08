@@ -19,7 +19,7 @@ class CacheService:
         payload = {
             'user_id': user.user_id,
             'username': user.username,
-            'role': user.role,
+            'role': user.role.value,
             'authenticated_at': int(time.time()),
         }
 

@@ -1,7 +1,6 @@
 import os
 import logging
 import secrets
-import importlib.resources
 from typing import Optional, Literal
 from argon2 import PasswordHasher
 from pydantic import Field
@@ -59,6 +58,11 @@ class Settings(BaseSettings):
     vault_app_secret_id: Optional[str] = Field(
         None,
         description='Hashicorp Vault App Secret ID for secret management.',
+    )
+    vault_token: Optional[str] = Field(
+        None,
+        description='Hashicorp Vault token. This is not as secure as app role, and should only be '
+                    'used for local development.'
     )
     vault_kv_path: str = Field(
         'sandbox-game',

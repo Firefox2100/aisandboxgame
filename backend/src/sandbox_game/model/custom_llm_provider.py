@@ -18,6 +18,10 @@ class CustomLlmProviderCreate(BaseModel):
     )
 
 
+class CustomLlmProviderUpdate(CustomLlmProviderCreate):
+    pass
+
+
 class CustomLlmProvider(BaseModel):
     provider_id: int = Field(
         ...,

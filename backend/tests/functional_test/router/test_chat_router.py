@@ -1,6 +1,6 @@
 import pytest
 
-from backend.tests.helpers import register_user
+from tests.helpers import register_user
 
 pytestmark = pytest.mark.asyncio
 

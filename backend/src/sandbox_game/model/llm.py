@@ -99,6 +99,9 @@ class GameTurnData(BaseModel):
     timeline_events: list[dict[str, Any]] = Field(
         default_factory=list,
     )
+    react_segments: list[dict[str, Any]] = Field(
+        default_factory=list,
+    )
 
 
 class OocStageResult(BaseModel):

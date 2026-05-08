@@ -55,3 +55,23 @@ class KmsService:
             return secret['data']['data']['api-key']
         except (InvalidPath, InvalidRequest):
             return None
+
+    def delete_api_key(self,
+                       user_id: int,
+                       provider: LlmProviderType,
+                       provider_id: int | None = None,
+                       ):
+        if provider == LlmProviderType.CUSTOM:
+            if provider_id is None:
+                raise ValueError('provider_id is required for CUSTOM provider')
+            path = f'api-keys/custom/{provider_id}/{user_id}'
+        else:
+            path = f'api-keys/{provider.value}/{user_id}'
+
+        try:
+            self._client.secrets.kv.v2.delete_metadata_and_all_versions(
+                path=path,
+                mount_point=CONFIG.vault_kv_path,
+            )
+        except (InvalidPath, InvalidRequest):
+            return

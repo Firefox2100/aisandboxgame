@@ -17,6 +17,7 @@ from sandbox_game.model.llm import (
 from sandbox_game.model.save import GameSave
 from sandbox_game.model.world_card import WorldCard
 from sandbox_game.service.llm.service import LlmService
+from sandbox_game.service.expansion import ExpansionService, ExpansionValidationError
 from sandbox_game.service.prompts import PromptService
 from sandbox_game.service.react_tools import (
     GetRawNarrativeInput,
@@ -80,9 +81,11 @@ class ReactPipelineService:
     def __init__(self,
                  llm_service: LlmService | None = None,
                  prompts: PromptService | None = None,
+                 expansion_service: ExpansionService | None = None,
                  ):
         self._prompts = prompts or PromptService('zh_cn')
         self._llm = llm_service or LlmService(self._prompts)
+        self._expansion = expansion_service or ExpansionService(self._llm)
 
     async def run(self,
                   request: GenerateTurnRequest,
@@ -97,7 +100,13 @@ class ReactPipelineService:
             save=save,
             collected_data=request.collected_data,
         )
+        react_segments: list[dict[str, Any]] = []
         ooc_result = await self._run_ooc_if_needed(request, api_key)
+        react_segments.append({
+            'stage': 'ooc',
+            'status': 'ask' if ooc_result and ooc_result.mode == 'ask' else 'completed',
+            'mode': ooc_result.mode if ooc_result else 'skipped',
+        })
         if ooc_result and ooc_result.mode == 'ask':
             question = ooc_result.question or '你想让我按这个方向调整本轮写法吗？'
             return GenerateTurnResponse(
@@ -112,6 +121,7 @@ class ReactPipelineService:
                             time_effect='low',
                         )
                     ],
+                    react_segments=react_segments,
                 ),
                 model=request.llm.model,
                 provider=request.llm.provider,
@@ -119,6 +129,11 @@ class ReactPipelineService:
             )
 
         npc_reactions = await self._run_npc_reactions(request, world_card, save, api_key)
+        react_segments.append({
+            'stage': 'npc_reactions',
+            'status': 'completed',
+            'count': len(npc_reactions),
+        })
         narrative = await self._run_narrative_stage(
             request=request,
             world_card=world_card,
@@ -128,6 +143,12 @@ class ReactPipelineService:
             ooc_directive=ooc_result.directive if ooc_result and ooc_result.mode == 'commit' else None,
             npc_reactions=npc_reactions,
         )
+        react_segments.append({
+            'stage': 'narrative',
+            'status': 'completed',
+            'chars': len(narrative),
+            'tool_calls': len(tool_context.tool_log),
+        })
         await self._run_effects_stage(
             request=request,
             narrative=narrative,
@@ -135,6 +156,17 @@ class ReactPipelineService:
             api_key=api_key,
             tool_context=tool_context,
         )
+        side_effects_after_effects = tool_context.tool_side_effects()
+        react_segments.append({
+            'stage': 'effects',
+            'status': 'completed',
+            'inventory_changes': len(side_effects_after_effects['inventory_changes']),
+            'sms_messages': len(side_effects_after_effects['sms_messages']),
+            'notifications': len(side_effects_after_effects['notifications']),
+            'npc_updates': len(side_effects_after_effects['npc_updates']),
+            'world_expansions': len(side_effects_after_effects['world_expansions']),
+            'character_expansions': len(side_effects_after_effects['character_expansions']),
+        })
         settlement = await self._run_settlement_stage(
             request=request,
             narrative=narrative,
@@ -142,6 +174,11 @@ class ReactPipelineService:
             api_key=api_key,
             tool_context=tool_context,
         )
+        react_segments.append({
+            'stage': 'settlement',
+            'status': 'completed',
+            'panel_status': bool(settlement),
+        })
         choices = await self._run_choices_stage(
             request=request,
             narrative=narrative,
@@ -150,6 +187,11 @@ class ReactPipelineService:
             api_key=api_key,
             tool_context=tool_context,
         )
+        react_segments.append({
+            'stage': 'choices',
+            'status': 'completed',
+            'count': len(choices),
+        })
 
         side_effects = tool_context.tool_side_effects()
         data = GameTurnData(
@@ -159,6 +201,7 @@ class ReactPipelineService:
             npc_updates=tool_context.npc_updates,
             inventory_changes=tool_context.inventory_changes,
             timeline_events=[],
+            react_segments=react_segments,
         )
         for message in side_effects['sms_messages']:
             data.timeline_events.append({
@@ -170,11 +213,27 @@ class ReactPipelineService:
                 'type': 'notification',
                 'content': notification,
             })
+        for expansion in side_effects['world_expansions']:
+            data.timeline_events.append({
+                'type': 'world_expansion',
+                'content': expansion,
+            })
+        for expansion in side_effects['character_expansions']:
+            data.timeline_events.append({
+                'type': 'character_expansion',
+                'content': expansion,
+            })
         if npc_reactions:
             data.timeline_events.append({
                 'type': 'npc_reactions',
                 'content': npc_reactions,
             })
+        react_segments.append({
+            'stage': 'persistable_side_effects',
+            'status': 'completed',
+            'timeline_events': len(data.timeline_events),
+            'tool_calls': len(side_effects['tool_log']),
+        })
 
         return GenerateTurnResponse(
             text=narrative,
@@ -270,7 +329,7 @@ class ReactPipelineService:
             output_type=str,
         )
 
-        self._register_narrative_tools(agent, tool_context)
+        self._register_narrative_tools(agent, tool_context, request, world_card, save, api_key)
 
         prompt = {
             'player_message': request.message,
@@ -432,6 +491,10 @@ class ReactPipelineService:
     def _register_narrative_tools(self,
                                   agent: Any,
                                   tool_context: ReactToolContext,
+                                  request: GenerateTurnRequest,
+                                  world_card: WorldCard | None,
+                                  save: GameSave | None,
+                                  api_key: str,
                                   ):
         @agent.tool_plain
         def get_state() -> str:
@@ -499,6 +562,35 @@ class ReactPipelineService:
             args = NewNpcInput(id=id, name=name, fields=fields or {})
             return tool_result_json(tool_context.new_npc(args))
 
+        if world_card:
+            @agent.tool_plain
+            async def update_new_world(context: str) -> str:
+                try:
+                    data = await self._expansion.generate_world(
+                        context=context,
+                        world_card=world_card,
+                        save=save,
+                        llm=request.llm,
+                        api_key=api_key,
+                    )
+                except ExpansionValidationError as e:
+                    raise ToolValidationError(str(e)) from e
+                return tool_result_json(tool_context.register_world_expansion(data))
+
+            @agent.tool_plain
+            async def update_new_characters(context: str) -> str:
+                try:
+                    data = await self._expansion.generate_characters(
+                        context=context,
+                        world_card=world_card,
+                        save=save,
+                        llm=request.llm,
+                        api_key=api_key,
+                    )
+                except ExpansionValidationError as e:
+                    raise ToolValidationError(str(e)) from e
+                return tool_result_json(tool_context.register_character_expansion(data))
+
     def _register_effect_tools(self,
                                agent: Any,
                                tool_context: ReactToolContext,
@@ -549,6 +641,8 @@ class ReactPipelineService:
             'get_sms_history',
             'new_npc',
         ]
+        if tool_context.world_card:
+            tools.extend(['update_new_world', 'update_new_characters'])
         if tool_context.predefined_npc_ids():
             tools.append('load_predefined_npc')
         return {

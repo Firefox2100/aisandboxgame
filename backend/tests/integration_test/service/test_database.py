@@ -3,6 +3,7 @@ import pytest
 import pytest_asyncio
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from sandbox_game.etc.enums import UserRole, CustomLlmProviderType
 from sandbox_game.model.user import UserCreate
@@ -16,11 +17,17 @@ from sandbox_game.service.database.tables import METADATA
 @pytest_asyncio.fixture
 async def db():
     """Create in-memory SQLite database for testing."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=True)
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={'check_same_thread': False},
+        poolclass=StaticPool,
+    )
     async with engine.begin() as conn:
         await conn.run_sync(METADATA.create_all)
 
     yield engine
+
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -92,6 +99,44 @@ async def test_list_custom_llm_providers(db_service):
 
     assert len(providers) == 1
     assert providers[0].name == "TestProvider"
+
+
+@pytest.mark.asyncio
+async def test_update_custom_llm_provider(db_service):
+    """Test updating custom LLM provider settings."""
+    provider = await db_service.create_custom_llm_provider(CustomLlmProviderCreate(
+        name="TestProvider",
+        provider=CustomLlmProviderType.OLLAMA,
+        url="https://old.example/v1"
+    ))
+
+    updated = await db_service.update_custom_llm_provider(
+        provider.provider_id,
+        CustomLlmProviderCreate(
+            name="UpdatedProvider",
+            provider=CustomLlmProviderType.OPENAI_COMPATIBLE,
+            url="https://new.example/v1"
+        )
+    )
+
+    assert updated.name == "UpdatedProvider"
+    assert updated.provider == CustomLlmProviderType.OPENAI_COMPATIBLE
+    assert updated.url == "https://new.example/v1"
+
+
+@pytest.mark.asyncio
+async def test_delete_custom_llm_provider(db_service):
+    """Test deleting custom LLM provider settings."""
+    provider = await db_service.create_custom_llm_provider(CustomLlmProviderCreate(
+        name="TestProvider",
+        provider=CustomLlmProviderType.OLLAMA,
+        url="https://openrouter.ai/api/v1"
+    ))
+
+    await db_service.delete_custom_llm_provider(provider.provider_id)
+    providers = await db_service.list_custom_llm_providers()
+
+    assert providers == []
 
 
 @pytest.mark.asyncio
