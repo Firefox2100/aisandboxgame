@@ -1,5 +1,5 @@
-const STATIC_CACHE = 'ai-sandbox-static-v3.3';
-const RUNTIME_CACHE = 'ai-sandbox-runtime-v3.3';
+const STATIC_CACHE = 'ai-sandbox-static-v3.4';
+const RUNTIME_CACHE = 'ai-sandbox-runtime-v3.4';
 
 const PRECACHE_URLS = [
   '/offline.html',
@@ -14,7 +14,7 @@ const PRECACHE_URLS = [
   '/prompts/cultivationworldcard.json',
   '/prompts/cultivationworldcard.data.js',
   '/prompts/cultivationworldcard.localization.en.js',
-  '/js/config/launcherWorldOptions.js?v=20260509a',
+  '/js/config/launcherWorldOptions.js?v=20260509b',
   '/assets/pwa/manifest.webmanifest',
   '/assets/pwa/manifest.zh-CN.webmanifest',
   '/assets/pwa/manifest.en.webmanifest',
@@ -22,13 +22,13 @@ const PRECACHE_URLS = [
   '/assets/pwa/icon-512.png',
   '/assets/pwa/icon-maskable-512.png',
   '/assets/pwa/apple-touch-icon-180.png',
-  '/assets/launcher/cover-640.webp?v=20260509a',
-  '/assets/launcher/cover-960.webp?v=20260509a',
-  '/assets/launcher/cover-1280.webp?v=20260509a',
-  '/assets/launcher/cover-1920.webp?v=20260509a',
-  '/assets/launcher/cover-2560.webp?v=20260509a',
-  '/assets/launcher/cover-3840.webp?v=20260509a',
-  '/assets/launcher/cover-fallback.jpg?v=20260509a',
+  '/assets/launcher/cover-640.webp?v=20260509b',
+  '/assets/launcher/cover-960.webp?v=20260509b',
+  '/assets/launcher/cover-1280.webp?v=20260509b',
+  '/assets/launcher/cover-1920.webp?v=20260509b',
+  '/assets/launcher/cover-2560.webp?v=20260509b',
+  '/assets/launcher/cover-3840.webp?v=20260509b',
+  '/assets/launcher/cover-fallback.jpg?v=20260509b',
   '/assets/fonts/material-icons-400.ttf',
   '/assets/fonts/material-symbols-outlined-w400.ttf',
   '/assets/fonts/material-symbols-outlined-w500.ttf',

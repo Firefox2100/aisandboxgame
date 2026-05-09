@@ -1,6 +1,16 @@
 {
   "zh-CN": [
     {
+      "version": "3.4",
+      "date": "2026-05-09",
+      "changes": [
+        "优化强制更新逻辑，下版本生效",
+        "优化交互体验，增加点击选项直接发送的设置选项",
+        "优化夸克浏览器兼容性",
+        "修复各项工具调用Bug"
+      ]
+    },
+    {
       "version": "3.3",
       "date": "2026-05-09",
       "changes": [
@@ -370,6 +380,16 @@
     }
   ],
   "en": [
+    {
+      "version": "3.4",
+      "date": "2026-05-09",
+      "changes": [
+        "Refined the forced-update logic (takes effect from the next release).",
+        "Improved interaction: added a setting to send a choice immediately on click.",
+        "Improved compatibility with the Quark browser.",
+        "Fixed various tool-call bugs."
+      ]
+    },
     {
       "version": "3.3",
       "date": "2026-05-09",

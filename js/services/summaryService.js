@@ -5,9 +5,6 @@
 // 依赖: aiService (来自 aiService.js)
 
 class SummaryService {
-  // 每多少轮触发一次章节总结
-  static CHAPTER_SIZE = 20;
-
   constructor() {
     this.summaries = []; // 混合存储:{ type: 'turn' | 'chapter', ... }
     this.listEl = document.getElementById('summary-list');
@@ -1696,6 +1693,9 @@ class SummaryService {
     return content || null;
   }
 }
+
+// 每多少轮触发一次章节总结
+SummaryService.CHAPTER_SIZE = 20;
 
 // 创建全局实例
 const summaryService = new SummaryService();

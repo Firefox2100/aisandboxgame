@@ -865,8 +865,24 @@ function bindChoiceClickEvents() {
         delete input.dataset.selectedChoiceText;
       }
 
-      input.focus({ preventScroll: true });
-      if (typeof autoResizeTextarea === 'function') autoResizeTextarea();
+      // 「点击选项即发送」开关：开启时直接派发发送；AI 流式中（按钮处于 cancel-mode）
+      // 不自动发，避免误触取消，让用户自己决定是要改文本还是要中止当前回合。
+      // auto-send 路径不 focus 输入栏：iOS/Android 上 focus 会弹软键盘，preventScroll
+      // 也挡不住；用户用「点」就是不想打字。autoResize 也跳过——handleSendMessage
+      // 紧接着会清空 value 并 reset 高度。
+      // 默认开：localStorage 没值视为开，只有显式存了 'off' 才关
+      const wantsAutoSend = localStorage.getItem('click-to-send') !== 'off';
+      const sendBtn = wantsAutoSend
+        ? document.querySelector('[data-action~="chat-send-btn"]')
+        : null;
+      const canAutoSend = !!sendBtn && !sendBtn.classList.contains('cancel-mode');
+
+      if (wantsAutoSend && canAutoSend) {
+        sendBtn.click();
+      } else {
+        input.focus({ preventScroll: true });
+        if (typeof autoResizeTextarea === 'function') autoResizeTextarea();
+      }
     });
   });
   _markStaleChoices();

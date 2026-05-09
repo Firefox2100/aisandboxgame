@@ -103,11 +103,6 @@ class ArchiveService {
   // 规则模块检索
   // ========================================
 
-  static MODULE_DEPENDENCIES = {
-    time_protocol: ['economy'],
-    job_board: ['economy'],
-  };
-
   resetLoadedModules() {
     this.loadedModulesInSession.clear();
   }
@@ -371,6 +366,11 @@ class ArchiveService {
     return note ? `${note}\n\n${formatted}` : formatted;
   }
 }
+
+ArchiveService.MODULE_DEPENDENCIES = {
+  time_protocol: ['economy'],
+  job_board: ['economy'],
+};
 
 const archiveService = new ArchiveService();
 window.archiveService = archiveService;

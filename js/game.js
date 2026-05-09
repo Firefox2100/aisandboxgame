@@ -235,23 +235,33 @@ function getPwaUpdatePromptDescription() {
     : '新版本已下载完成，将刷新页面进入最新版。';
 }
 const PWA_UPDATE_IDLE_CHECK_MS = 800;
-const PWA_UPDATE_MAX_IDLE_WAIT_MS = 60 * 1000;
 const PWA_RELOAD_FALLBACK_MS = 5000;
 const pwaUpdatePromptState = {
   pending: false,
   suppressedForSession: false,
   isModalOpen: false,
   idleTimerId: null,
-  pendingSince: null,
   reloadFallbackTimerId: null,
 };
+
+function _isPwaBusyForUpdate() {
+  if (isSending) return true;
+  const ds = window.designService;
+  if (ds && ds.isAutoGenerating) return true;
+  return false;
+}
+
+function _isLauncherActive() {
+  if (window._launcherVisible === true) return true;
+  const el = document.getElementById('launcher-overlay');
+  return !!(el && !el.classList.contains('launcher--hidden'));
+}
 
 function _clearPwaUpdateIdleTimer() {
   if (pwaUpdatePromptState.idleTimerId !== null) {
     clearInterval(pwaUpdatePromptState.idleTimerId);
     pwaUpdatePromptState.idleTimerId = null;
   }
-  pwaUpdatePromptState.pendingSince = null;
 }
 
 function _scheduleReloadFallback() {
@@ -313,10 +323,14 @@ async function _showPwaUpdatePrompt() {
 
   const baseDesc = getPwaUpdatePromptDescription();
   const isEn = window.i18nService?.getResolvedLanguage?.() === 'en';
+  const inLauncher = _isLauncherActive();
   const modalOptions = {
     confirmLabel: isEn ? 'Update Now' : '立即更新',
-    hideCancel: true,
+    hideCancel: inLauncher,
   };
+  if (!inLauncher) {
+    modalOptions.cancelLabel = isEn ? 'Update on next refresh' : '下次刷新时更新';
+  }
   if (changelogHtml) {
     modalOptions.descriptionHtml =
       `<p class="modal-description__lead">${escapeHTML(baseDesc)}</p>${changelogHtml}`;
@@ -331,16 +345,18 @@ async function _showPwaUpdatePrompt() {
       _clearPwaUpdateIdleTimer();
       _applyPwaUpdateNow();
     },
-    null,
+    inLauncher
+      ? null
+      : () => {
+          pwaUpdatePromptState.isModalOpen = false;
+          _clearPwaUpdateIdleTimer();
+        },
     modalOptions
   );
 }
 
 function _schedulePwaUpdatePromptWhenIdle() {
   if (pwaUpdatePromptState.idleTimerId !== null) return;
-  if (pwaUpdatePromptState.pendingSince === null) {
-    pwaUpdatePromptState.pendingSince = Date.now();
-  }
 
   pwaUpdatePromptState.idleTimerId = setInterval(() => {
     if (pwaUpdatePromptState.suppressedForSession || !pwaUpdatePromptState.pending) {
@@ -350,11 +366,7 @@ function _schedulePwaUpdatePromptWhenIdle() {
 
     const modal = document.getElementById('confirm-modal');
     const modalBusy = modal && !modal.classList.contains('hidden');
-    const waitedTooLong =
-      pwaUpdatePromptState.pendingSince !== null &&
-      Date.now() - pwaUpdatePromptState.pendingSince >= PWA_UPDATE_MAX_IDLE_WAIT_MS;
-    const canForceShow = waitedTooLong && !modalBusy;
-    if ((!isSending && !modalBusy) || canForceShow) {
+    if (!_isPwaBusyForUpdate() && !modalBusy) {
       _clearPwaUpdateIdleTimer();
       _showPwaUpdatePrompt();
     }
@@ -364,7 +376,7 @@ function _schedulePwaUpdatePromptWhenIdle() {
 function _handlePwaUpdateAvailable() {
   if (pwaUpdatePromptState.suppressedForSession) return;
 
-  if (isSending) {
+  if (_isPwaBusyForUpdate()) {
     pwaUpdatePromptState.pending = true;
     _schedulePwaUpdatePromptWhenIdle();
     return;

@@ -1210,7 +1210,13 @@ class _AIServiceSummarySmsMixin {
     // 获取所有总结 -> 移到 system context
     const summaries = typeof summaryService !== 'undefined' ? summaryService.getSummaries() : [];
     if (summaries.length > 0) {
-      systemContextParts.push(`## 之前剧情的总结\n\n${summaries.join('\n')}`);
+      systemContextParts.push(
+        `## 之前剧情的总结\n\n${summaries.join('\n')}\n\n` +
+        `_注：以上为压缩骨架，对话原文、具体细节、情感片段已丢失。` +
+        `当玩家追问过去具体细节（"那馒头烫不烫"）、复述具体对话、引用过去原话、` +
+        `或叙事需要还原某回合精确语气时，先用 \`search_world\` 找回合号，` +
+        `再用 \`get_raw_narrative({turn_number: N})\` 看完整原文。_`
+      );
     }
 
     const selectedNpcs = this._getSelectedPromptNpcs();

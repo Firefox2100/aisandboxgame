@@ -1347,6 +1347,8 @@ class OpenAIAdapter extends BaseAdapter {
       && (!toolCallsRaw || toolCallsRaw.length === 0)
       && !usage;
     if (isEmpty || data?.error || !data?.choices?.length) {
+      // 上游返回 null body 或解析后 data 为 null/非对象时，避免 null._diagnostics 解引用 (bug-0123/0124)
+      if (!data || typeof data !== 'object') data = {};
       data._diagnostics = {
         kind: data?.error ? 'error_body' : (!data?.choices?.length ? 'no_choices' : 'empty_response'),
         finishReason: choice?.finish_reason || null,
@@ -1650,7 +1652,19 @@ class OpenAIAdapter extends BaseAdapter {
           args = JSON.parse(cleaned);
           console.warn('[OpenAIAdapter] 工具参数 JSON 不规范，已 clean +N 前缀后恢复');
         } catch (_) {
+          // 双层 parse 都失败：给 toolCall 打 parseError 标，保留 args={} 以保持类型一致。
+          // 调用方（prompt-gm._executeToolCalls）见到 parseError 会跳过 toolRegistry.execute
+          // 并向 LLM 返回 [失败] 字符串，避免静默执行空参数工具。
           console.warn('[OpenAIAdapter] 工具参数解析失败:', e, raw?.substring?.(0, 200));
+          return {
+            name: tc.function.name,
+            args: {},
+            id: tc.id,
+            parseError: {
+              message: e?.message || String(e),
+              rawPreview: String(raw || '').substring(0, 120),
+            },
+          };
         }
       }
       return {

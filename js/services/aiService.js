@@ -578,6 +578,22 @@ class AIService {
       return `返回格式异常：${message}`;
     }
     if (info.errorType === 'http' && info.httpStatus) {
+      // 上游误导性 400：返回 "field messages is required" / "messages: field required"
+      // 等字样，但我们的请求体始终带 messages —— 这通常意味着 provider 不接受当前
+      // model 名（常见于自定义中转把"auto"等路由关键字直接打到不支持它的后端时），
+      // 中转把校验失败错位到 messages 字段。重写 rootCause 让玩家直接看到下一步动作。
+      if (
+        info.httpStatus === 400 &&
+        /messages?\b[^a-z]{0,30}\b(?:is\s+)?required|缺少.*messages|messages.*field\s+required/i.test(
+          message,
+        )
+      ) {
+        const modelHint = info.model ? `当前模型名："${info.model}"` : '';
+        const providerHint = info.provider ? `服务商：${info.provider}` : '';
+        const detail = [modelHint, providerHint].filter(Boolean).join('，');
+        const suffix = detail ? `（${detail}）` : '';
+        return `Provider 不接受当前模型名${suffix}。建议到 设置 → API 中改成该 provider 实际支持的具体模型名（上游原始报错：${message}）`;
+      }
       return `Provider 返回 HTTP ${info.httpStatus}：${message}`;
     }
     return message;

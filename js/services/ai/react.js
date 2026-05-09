@@ -120,7 +120,15 @@ class _AIServiceReactMixin {
           ? `Agent ReAct Error: Model "${reactModelForTelemetry}" was previously confirmed not to support function calling. Please switch to a model that supports tool calls, or enable "Recommended Settings" in API settings.`
           : `Agent ReAct Error: 模型 "${reactModelForTelemetry}" 此前已确认不支持工具调用（function calling）。请切换到支持工具调用的模型，或在 API 设置里启用「推荐设置」。`;
         const earlyErr = new Error(earlyMsg);
-        earlyErr.errorType = 'no_function_calling';
+        // chatCore _extractAIFailureMeta 只读 errorInfo / unifiedErrorInfo / _aiErrorMeta.errorInfo,
+        // 直接挂 earlyErr.errorType 会让对话框走"未知错误"分支，错过 no_function_calling 精准提示。
+        earlyErr.errorInfo = {
+          errorType: 'no_function_calling',
+          provider: reactProviderForTelemetry,
+          model: reactModelForTelemetry,
+          phase: 'react',
+          message: earlyMsg,
+        };
         earlyErr.preflight = true;
         throw earlyErr;
       }

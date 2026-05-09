@@ -13,14 +13,6 @@ class OpeningController {
     this._ai = aiService;
   }
 
-  // ── 按模式选择的 init 规则编号 ──
-
-  static RULES_BY_MODE = {
-    random:           [1, 4, 6, 7, 8, 9],
-    recommended:      [1, 2, 5, 6, 7, 8, 9],
-    player_specified: [1, 3, 6, 7, 8, 9],
-  };
-
   /**
    * 统一开场解析入口
    * @param {Array} messages - 消息历史
@@ -218,5 +210,12 @@ class OpeningController {
       : `### 本局已锁定的开场事件\n\n本轮${modeLabel}已锁定一条 timeline 事件作为开场锚点。\n开场时间：${context.selectedTimeText}。${timeInstruction}${locationText}${eventHint}`;
   }
 }
+
+// ── 按模式选择的 init 规则编号 ──
+OpeningController.RULES_BY_MODE = {
+  random:           [1, 4, 6, 7, 8, 9],
+  recommended:      [1, 2, 5, 6, 7, 8, 9],
+  player_specified: [1, 3, 6, 7, 8, 9],
+};
 
 window.OpeningController = OpeningController;

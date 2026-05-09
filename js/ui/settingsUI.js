@@ -448,6 +448,10 @@ const SETTINGS_LOCALE_COPY = {
         label: '叙事着色',
         hint: '为对话、心理活动、说话人等文字显示不同颜色',
       },
+      clickToSend: {
+        label: '点击选项即发送',
+        hint: '关闭时，点击选项会先填入输入栏，需要手动发送',
+      },
       streamingLabel: '流式输出',
       helpButtonTitle: '推荐模型',
       editPrice: '编辑价格',
@@ -775,6 +779,10 @@ const SETTINGS_LOCALE_COPY = {
       narrativeColorize: {
         label: 'Narrative Coloring',
         hint: 'Highlight dialogue, thoughts, and speakers in different colors',
+      },
+      clickToSend: {
+        label: 'Click to Send',
+        hint: 'When off, clicking a choice fills the input box for manual sending',
       },
       streamingLabel: 'Streaming',
       helpButtonTitle: 'Recommended Models',
@@ -1336,6 +1344,8 @@ function _applySettingsStaticCopy() {
     'general.defaultContentFont.hint': copy.general.defaultContentFont.hint,
     'general.narrativeColorize.label': copy.general.narrativeColorize.label,
     'general.narrativeColorize.hint': copy.general.narrativeColorize.hint,
+    'general.clickToSend.label': copy.general.clickToSend.label,
+    'general.clickToSend.hint': copy.general.clickToSend.hint,
     'general.thinkingHint': copy.general.thinkingHint,
     'general.thinkingHelp': copy.general.thinkingHelp,
     'general.feedback.entryEyebrow': copy.general.feedback.entryEyebrow,
@@ -4572,6 +4582,12 @@ function setupSettingsUI() {
     narrativeColorizeToggle.checked = localStorage.getItem('narrative-colorize') === 'on';
   }
 
+  const clickToSendToggle = document.getElementById('click-to-send-toggle');
+  if (clickToSendToggle) {
+    const stored = localStorage.getItem('click-to-send');
+    clickToSendToggle.checked = stored === null || stored === 'on';
+  }
+
   // 重新绑定 toggle tab-strip（HTML 已渲染，幂等调用）
   _bindToggleTabStrips();
 
@@ -4699,6 +4715,15 @@ function setupSettingsUI() {
       narrativeColorizeToggle.checked = localStorage.getItem('narrative-colorize') === 'on';
       narrativeColorizeToggle.addEventListener('change', () => {
         localStorage.setItem('narrative-colorize', narrativeColorizeToggle.checked ? 'on' : 'off');
+      });
+    }
+    // 点击选项即发送开关
+    const clickToSendToggle = document.getElementById('click-to-send-toggle');
+    if (clickToSendToggle) {
+      const stored = localStorage.getItem('click-to-send');
+      clickToSendToggle.checked = stored === null || stored === 'on';
+      clickToSendToggle.addEventListener('change', () => {
+        localStorage.setItem('click-to-send', clickToSendToggle.checked ? 'on' : 'off');
       });
     }
 
