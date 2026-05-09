@@ -13,6 +13,72 @@
  * 加载顺序：必须在 aiService.js 之后加载。
  */
 
+// 把 upstream step 的失败分类成可读的"错误种类"，让错误对话框可以给精准建议而不是
+// 通用"重试"。优先读结构化字段 (errorInfo.httpStatus/providerErrorCode)，字符串路径
+// (e.g. iter 9 catch 块拼的字符串) 时退到 message 关键词识别。无论 kind 命中哪种，
+// 原始 msg 永远显示给用户——kind 只用来加一行精准建议。
+// 完整错误码参考见 docs/API_ERROR_CODES.md（OpenAI/Anthropic/DeepSeek/Gemini 四家差异 + 中转站 quirk）
+function classifyUpstreamErrorStep(step) {
+  const ei = step?.errorInfo;
+  const isObj = ei && typeof ei === 'object';
+  const msg = isObj ? (ei.message || '') : (typeof ei === 'string' ? ei : (step?.error || ''));
+  const status = isObj ? ei.httpStatus : null;
+  const code = isObj ? ei.providerErrorCode : null;
+  const errorType = isObj ? ei.errorType : null;
+  const safetyReason = isObj ? ei.safetyReason : null;
+  const safetyStage = isObj ? ei.safetyStage : null;
+
+  // 0. Gemini 安全过滤：errorType 是 GeminiAdapter 在 200+blockReason/finishReason 时设的——直接走 safety_filtered
+  if (errorType === 'safety_filtered') return { kind: 'safety_filtered', msg, status, safetyReason, safetyStage };
+
+  // 1. 强 status 信号（标准且不会被中转站误用）
+  if (status === 402) return { kind: 'balance', msg, status };               // Anthropic billing_error / DeepSeek 余额不足
+  if (status === 413) return { kind: 'payload_too_large', msg, status };     // Anthropic >32MB body
+  if (typeof status === 'number' && status >= 500 && status < 600) return { kind: 'provider_5xx', msg, status }; // 含 Anthropic 529 overloaded
+
+  // 2. message 强信号（中转站常用 401/403 包装"余额不足/限流"——message 关键词比 status 准；
+  //    boxhill 之类把"用户额度不足"用 403 返回的 case 必须靠这里救回，不然会被下面 401/403→auth 误判）
+  //    OpenAI billing_hard_limit_reached 走 code 检测（5 区段命中 insufficient_quota 同理）
+  if (/insufficient[\s_]?balance|余额不足|额度不足|out of credit|余额.*不足|额度.*不足|billing[\s_]?hard[\s_]?limit/i.test(msg)) return { kind: 'balance', msg, status };
+  if (code === 'billing_hard_limit_reached') return { kind: 'balance', msg, status };
+  if (/rate[\s_]?limit|too many requests|超出.*限制|已达到.*请求.*限制|请求数限制/i.test(msg)) return { kind: 'rate_or_quota', msg, status };
+
+  // 3. Gemini key 错的特殊形式：HTTP 400 + message/details 含 API_KEY_INVALID/API_KEY_EXPIRED（不返 401）
+  //    放在 401/403→auth 之前，让"格式错"和"key 错"的 400 分流
+  if (status === 400 && /API[_\s]?KEY[_\s]?(INVALID|EXPIRED)|api.{0,5}key.{0,5}(invalid|expired|not[_\s]?valid)/i.test(msg)) {
+    return { kind: 'auth', msg, status };
+  }
+
+  // 3a. 推理模式 + 强制工具调用不兼容（DeepSeek-reasoner / Kimi-2.5 / 部分推理后端）
+  //    我们的 buildPayload 已对 deepseek 自动降级 thinking，但 'custom' provider 走第三方代理时
+  //    后端默认开 thinking 我们这边无法预判 → 上游回 400 后给用户明确"关 thinking 或换模型"引导
+  if (/incompatible with thinking|does not support this tool_choice/i.test(msg)) {
+    return { kind: 'forced_tool_thinking_incompat', msg, status };
+  }
+
+  // 3b. Gemini billing 没开 / 区域不支持：HTTP 400 + FAILED_PRECONDITION（语义上是"账户没开通付费"，不是"余额耗尽"）
+  //     典型 message: "User location is not supported for the API use without a billing account configured"
+  if (status === 400 && /FAILED_PRECONDITION|billing[\s_]?account|billing.{0,10}(not[\s_]?(enabled|configured)|required|disabled)/i.test(msg)) {
+    return { kind: 'billing_disabled', msg, status };
+  }
+
+  // 4. errorType（fetch 抛 TypeError 已经在 _buildApiErrorInfo 里分到 'network'，直接采信）
+  if (errorType === 'network' || errorType === 'timeout') return { kind: 'network', msg, status };
+
+  // 5. status 401/403/429 — message 没明说余额/限流时才认为是真鉴权/真限流
+  if (status === 401 || status === 403) return { kind: 'auth', msg, status };
+  if (status === 429 || code === 'insufficient_quota') {
+    // OpenAI 把"账户余额耗尽"用 429 + insufficient_quota 返回，独立于真限流——按 balance 处理而不是限流
+    if (code === 'insufficient_quota') return { kind: 'balance', msg, status };
+    return { kind: 'rate_or_quota', msg, status };
+  }
+
+  // 6. message 兜底网络关键词（errorInfo 是字符串 / 没 errorType 的路径）
+  if (/timeout|timed out|超时|ETIMEDOUT|ECONNRESET|Load failed|Failed to fetch|NetworkError/i.test(msg)) return { kind: 'network', msg, status };
+
+  return { kind: 'unknown', msg, status };
+}
+
 class _AIServiceReactMixin {
   // ========================================
   // 统一工作流 Runner
@@ -43,14 +109,45 @@ class _AIServiceReactMixin {
       // 各自不同（参见 RECOMMENDED_PHASE_MAP），完整 per-iter 数据在 stepMetrics 里。
       const reactModelForTelemetry = this.getModelForModule('iter1_narrative', AI_REQUEST_SCOPED);
       const reactProviderForTelemetry = this.getProviderForModule('iter1_narrative', AI_REQUEST_SCOPED);
+
+      // Capability pre-flight: 之前已确认不支持 function calling 的模型, 直接早抛同款错误,
+      // 避免用户在不知情下浪费几十秒等 ReAct 跑完一整轮才看到错误对话框。memo 在
+      // 错误抛出处累积 (见函数末尾 _rememberModelNoFunctionCalling 调用)。
+      // 用户切到支持的模型自然就过了。memo entry 格式: "provider::model"。
+      if (this._isModelKnownNoFunctionCalling(reactProviderForTelemetry, reactModelForTelemetry)) {
+        const lang = this._getGamePromptLanguage?.() || 'zh';
+        const earlyMsg = lang === 'en'
+          ? `Agent ReAct Error: Model "${reactModelForTelemetry}" was previously confirmed not to support function calling. Please switch to a model that supports tool calls, or enable "Recommended Settings" in API settings.`
+          : `Agent ReAct Error: 模型 "${reactModelForTelemetry}" 此前已确认不支持工具调用（function calling）。请切换到支持工具调用的模型，或在 API 设置里启用「推荐设置」。`;
+        const earlyErr = new Error(earlyMsg);
+        earlyErr.errorType = 'no_function_calling';
+        earlyErr.preflight = true;
+        throw earlyErr;
+      }
       const promptLenChars = Array.isArray(messages)
         ? messages.reduce((n, m) => n + (typeof m?.content === 'string' ? m.content.length : 0), 0) : 0;
+      // Lift the player's typed turn input out of the prompt envelope so the
+      // admin event waterfall can render it inline. Multimodal content (array
+      // of {type,text}) is collapsed to its text parts; non-text falls through
+      // as null and the admin renders nothing for that row.
+      let userMessageText = null;
+      if (Array.isArray(messages)) {
+        const lastUser = [...messages].reverse().find((m) => m?.role === 'user');
+        const c = lastUser?.content;
+        if (typeof c === 'string') {
+          userMessageText = c.slice(0, 4000);
+        } else if (Array.isArray(c)) {
+          const joined = c.map((p) => (typeof p?.text === 'string' ? p.text : '')).filter(Boolean).join('\n');
+          userMessageText = joined ? joined.slice(0, 4000) : null;
+        }
+      }
       window.analyticsService?.track?.('ai.request', {
         request_id: _analyticsReqId,
         model: reactModelForTelemetry,
         provider: reactProviderForTelemetry,
         phase: 'react',
         prompt_len_chars: promptLenChars,
+        user_message: userMessageText,
       });
     } catch (_) { /* ignore */ }
 
@@ -443,9 +540,12 @@ class _AIServiceReactMixin {
     console.log(`[Agent] Parallel merge: A=+${branchADelta.length} entries, B=+${branchBDelta.length} entries`);
 
     const iter1Checkpoint = iter1Result?.narrativeCheckpoint || null;
-    const iter1NextTool = (iter1Checkpoint && iter1Checkpoint.type !== 'none' && typeof iter1Checkpoint.next_tool === 'string')
+    const iter1NextToolRaw = (iter1Checkpoint && iter1Checkpoint.type !== 'none' && typeof iter1Checkpoint.next_tool === 'string')
       ? iter1Checkpoint.next_tool.trim()
       : '';
+    // 'none' 是 schema enum 的哨兵值（取代旧的空字符串，因 Gemini 不允许 enum 含空字符串），
+    // 与未声明等价：跳过 latch。
+    const iter1NextTool = iter1NextToolRaw === 'none' ? '' : iter1NextToolRaw;
 
     if (!iter1NextTool) {
       console.warn('[Agent] iter 1 未声明有效 checkpoint（type=none 或 next_tool 缺失），跳过 iter 5/6/7，直接进 iter 8/9');
@@ -544,9 +644,11 @@ class _AIServiceReactMixin {
       //   分支 3: 跳过           — iter 6 调了 narrative 但 type=none，无需 iter 7
       const iter6MissedNarrative = !iter6Result || !iter6Result.executedToolNames?.includes('update_narrative');
       const iter6Checkpoint = iter6Result?.narrativeCheckpoint || null;
-      const iter6NextToolRaw = (iter6Checkpoint && iter6Checkpoint.type !== 'none' && typeof iter6Checkpoint.next_tool === 'string')
+      const iter6NextToolFromSchema = (iter6Checkpoint && iter6Checkpoint.type !== 'none' && typeof iter6Checkpoint.next_tool === 'string')
         ? iter6Checkpoint.next_tool.trim()
         : '';
+      // 'none' 是 schema enum 的哨兵值（取代旧的空字符串），与未声明等价。
+      const iter6NextToolRaw = iter6NextToolFromSchema === 'none' ? '' : iter6NextToolFromSchema;
 
       // 验证 iter6NextTool 必须命中 registry——否则 closing_resolve filter 只会暴露 update_narrative，
       // 而 directive 仍会要求 AI 调那个不存在的工具，触发 hard-reject。
@@ -699,51 +801,97 @@ class _AIServiceReactMixin {
           fallback: true,
         });
       } else {
-        // 兜底 2：commentary 也为空 → 抛出更可操作的错误
+        // 兜底 2：commentary 也为空 → 5 档分类（A upstream / B narrative_skipped /
+        // C no_function_calling 仅自定义 provider / C' & D unexpected_format）
+        // 历史 bug-0004：557ebaa 引入的"非 upstream 即 no_function_calling"兜底逻辑把
+        // 余额不足/限流/超时全甩成"模型不支持 fc"，污染 capability memo 还引导用户换模型
+        // (用户 812cb818 / 4a9a8b66 实证)。新逻辑要求 no_function_calling 必须有积极证据
+        // (整个 turn 零 tool_call) 且 provider 是自定义 (builtin 永不下此结论)。
         const lang = this._getGamePromptLanguage?.() || 'zh';
 
-        // 扫上游 step 找出真实根因：tool_choice 被 provider 拒绝时，原始错误信息会
-        // 被 epilogue 改写成误导性的"模型不支持 function calling"，把它换成上游首条错误。
-        const upstreamFailures = (this.lastPayload?.steps || []).filter(
-          s => s?.failed && /tool[_ ]choice|does not support|400/i.test(
-            s?.errorInfo?.message || s?.error || ''
-          )
+        // ── A 档积极证据：任何 step.failed === true（不再做关键词白名单过滤）──
+        const allSteps = this.lastPayload?.steps || [];
+        const failedSteps = allSteps.filter(s => s?.failed);
+        const upstreamFirst = failedSteps[0];
+
+        // ── B / C 档区分：扫 executedTools (Set of "name:argsJSON") 看 turn 内
+        //    是否调过任何工具、是否调过 update_narrative ──
+        const executedNames = [...executedTools].map(sig =>
+          typeof sig === 'string' ? sig.split(':')[0] : ''
         );
-        const upstreamFirst = upstreamFailures[0];
-        const upstreamFirstMsg = upstreamFirst
-          ? (upstreamFirst.errorInfo?.message || upstreamFirst.error)
-          : null;
+        const anyToolCalled = executedNames.length > 0;
+        const narrativeCalled = executedNames.includes('update_narrative');
 
-        const msg = upstreamFirst
-          ? (lang === 'en'
-              ? `Narrative generation failed: ${upstreamFailures.length} upstream tool_choice request(s) were rejected by the provider. First: ${upstreamFirstMsg}`
-              : `叙事生成失败：上游 ${upstreamFailures.length} 次 tool_choice 请求被 provider 拒绝。首条：${upstreamFirstMsg}`)
-          : (lang === 'en'
-              ? 'Model did not produce narrative via function calling (no update_narrative call and no plain text output). This model may not support tool calling — try a model with function calling support.'
-              : '模型未通过 function calling 返回叙事（既未调用 update_narrative 也无明文输出）。该模型可能不支持工具调用，建议改用支持 function calling 的模型。');
+        // ── 自定义 provider 判定 (用 telemetry 取的 reactProviderForTelemetry，
+        //    覆盖推荐模式下 iter1_narrative 的实际 provider) ──
+        const reactProviderId = this.getProviderForModule('iter1_narrative', AI_REQUEST_SCOPED);
+        const isCustom = !!(this.isCustomProvider && this.isCustomProvider(reactProviderId));
 
-        const rootCause = upstreamFirst
-          ? `上游 ${upstreamFailures.length} 次工具调用因 tool_choice 被 provider 拒绝（首条 ${upstreamFirst.phase || '?'}: ${upstreamFirstMsg}）`
-          : '模型未按 function calling 协议返回叙事（commentary 也为空）';
+        // ── 5 档分类决策 ──
+        let errorTypeForDialog;
+        let upstreamKindResult = null;
+        let msg;
+        let rootCause;
+
+        if (upstreamFirst) {
+          // A 档: upstream_failure
+          errorTypeForDialog = 'upstream_failure';
+          upstreamKindResult = classifyUpstreamErrorStep(upstreamFirst);
+          const realMsg = upstreamKindResult.msg || '上游 API 调用失败';
+          msg = lang === 'en'
+            ? `Upstream API error: ${realMsg}`
+            : `上游 API 调用失败：${realMsg}`;
+          rootCause = `上游 ${failedSteps.length} 个 step 失败（首条 ${upstreamFirst.phase || '?'}: ${realMsg}）`;
+        } else if (anyToolCalled && !narrativeCalled) {
+          // B 档: narrative_skipped (模型支持 fc 协议但未调 update_narrative，典型 Gemini 抽风)
+          errorTypeForDialog = 'narrative_skipped';
+          msg = lang === 'en'
+            ? 'Model executed other tools but skipped update_narrative. This often happens when the model does not reliably honor named tool_choice — please retry.'
+            : '模型执行了其他工具但跳过了 update_narrative（叙事生成）。这通常是模型对 named tool_choice 的遵守不稳定，请重试。';
+          rootCause = `模型调用了 ${executedNames.length} 个工具但未调 update_narrative（已调：${[...new Set(executedNames)].join(', ') || 'none'}）`;
+        } else if (!anyToolCalled && isCustom) {
+          // C 档: no_function_calling (真阳性，仅自定义 provider 路径) → 写 memo
+          errorTypeForDialog = 'no_function_calling';
+          msg = lang === 'en'
+            ? 'Model did not produce narrative via function calling (no tool calls and no plain text output). This model may not support tool calling — try a model with function calling support.'
+            : '模型未通过 function calling 返回叙事（既无任何工具调用也无明文输出）。该模型可能不支持工具调用，建议改用支持 function calling 的模型。';
+          rootCause = '模型未按 function calling 协议返回任何工具调用（commentary 也为空）';
+          this._rememberModelNoFunctionCalling(reactProviderId, reactModel);
+        } else {
+          // C' / D 档: unexpected_format (builtin provider 无 tool_call，或其他 edge case)
+          errorTypeForDialog = 'unexpected_format';
+          msg = lang === 'en'
+            ? 'Model returned an unexpected response format (no narrative tool call and no plain text). Please retry.'
+            : '模型返回格式异常（无叙事工具调用也无明文输出），请重试。';
+          rootCause = anyToolCalled
+            ? '模型调用了工具但未产出叙事 + commentary 为空'
+            : '模型未产出任何工具调用 + commentary 为空（builtin provider 不下"不支持 fc"结论）';
+        }
 
         const emptyTextError = new Error(`Agent ReAct Error: ${msg}`);
-        // 错误类型分流：无上游 tool_choice 失败 = 模型本身不支持 function calling，
-        // 标记成 'no_function_calling' 让错误诊断对话框给玩家"切换模型 + 跳转设置"指引；
-        // 有上游失败 = provider 协议问题，沿用通用 unexpected_format 文案。
-        const errorTypeForDialog = upstreamFirst ? 'unexpected_format' : 'no_function_calling';
+        const failureContext = {
+          phase: 'react',
+          module: 'react',
+          provider: reactLabel,
+          model: reactModel,
+          url: null,  // 函数 epilogue：无单一 url 概念
+          defaultErrorType: errorTypeForDialog,
+          rootCause,
+        };
         this._markStepFailure(
           this.lastPayload.steps[this.lastPayload.steps.length - 1],
           emptyTextError,
-          {
-            phase: 'react',
-            module: 'react',
-            provider: reactLabel,
-            model: reactModel,
-            url: null,  // 函数 epilogue：无单一 url 概念（pipeline 多 stage 各自 url）
-            defaultErrorType: errorTypeForDialog,
-            rootCause,
-          }
+          failureContext
         );
+        // upstream_failure 时把 classify 结果挂到 errorInfo，让 chatCore 错误对话框路由建议
+        if (upstreamKindResult && emptyTextError.errorInfo && typeof emptyTextError.errorInfo === 'object') {
+          emptyTextError.errorInfo.upstreamKind = upstreamKindResult.kind;
+          emptyTextError.errorInfo.upstreamStatus = upstreamKindResult.status;
+          emptyTextError.errorInfo.upstreamRawMessage = upstreamKindResult.msg;
+          // Gemini 安全过滤的额外元数据：reason 枚举 + 阶段（输入拦/输出切）
+          if (upstreamKindResult.safetyReason) emptyTextError.errorInfo.safetyReason = upstreamKindResult.safetyReason;
+          if (upstreamKindResult.safetyStage) emptyTextError.errorInfo.safetyStage = upstreamKindResult.safetyStage;
+        }
         throw emptyTextError;
       }
     }
@@ -890,6 +1038,7 @@ class _AIServiceReactMixin {
         retry_count: 0,
         was_streamed: true,
         ok: true,
+        completion_text: typeof finalOutput === 'string' ? finalOutput.slice(0, 4000) : null,
       });
     } catch (_) { /* ignore */ }
 
@@ -1231,9 +1380,14 @@ class _AIServiceReactMixin {
       });
       console.warn('[Agent] iter 9 API 调用失败:', e);
       if (window.eventBus && window.GameEvents?.AI_ERROR) {
+        // 优先传 _markStepFailure 已挂的结构化 unifiedErrorInfo (含 httpStatus /
+        // providerErrorCode 等)，让 analytics ai.error_detail 收到结构化字段而非
+        // 字符串拼接 (bug-0004 调查发现 errorInfo 被字符串化导致 402 余额错误无
+        // 法按 httpStatus 分类)。fallback 保留字符串以兼容老路径。
         window.eventBus.emit(window.GameEvents.AI_ERROR, {
           error: e,
-          errorInfo: `iter 9 API 调用失败: ${e?.message || String(e)}`,
+          errorInfo: e?.unifiedErrorInfo || e?.errorInfo || stepLog?.errorInfo
+            || `iter 9 API 调用失败: ${e?.message || String(e)}`,
           traceId: this.lastPayload?.traceId,
           failedPhase: 'react',
         });
@@ -1816,7 +1970,57 @@ ${recentReplies.map((text, i) => `--- 剧情片段 ${i + 1} ---\n${text}`).join(
     return defaultRelationship || '陌生人';
   }
 
+  // ── 模型 capability memo ──────────────────────────
+  // 当 ReAct 在某个模型上明确以 'no_function_calling' 失败后, 把模型名记入 localStorage,
+  // 下次同一模型进 ReAct 入口时直接早抛同款错误。避免用户重复撞 8 次才意识到要换模型。
+  // 切到支持的模型即不受影响 (memo 不会拦截支持的)。
+
+  // memo entry 格式：`provider::model`，避免不同 provider 上同名 model 互踩
+  // (e.g. 自定义 provider1 的 "gpt-4" 跟 自定义 provider2 的 "gpt-4" 是两个独立 entry)
+  _capabilityMemoKey() { return 'sandbox.incompatible_react_models'; }
+  _capabilityMemoEntry(provider, model) {
+    if (!provider || !model) return null;
+    return `${provider}::${model}`;
+  }
+
+  _isModelKnownNoFunctionCalling(provider, model) {
+    const entry = this._capabilityMemoEntry(provider, model);
+    if (!entry) return false;
+    try {
+      const raw = localStorage.getItem(this._capabilityMemoKey()) || '';
+      if (!raw) return false;
+      return raw.split(',').filter(Boolean).includes(entry);
+    } catch (_) { return false; }
+  }
+
+  _rememberModelNoFunctionCalling(provider, model) {
+    const entry = this._capabilityMemoEntry(provider, model);
+    if (!entry) return;
+    try {
+      const key = this._capabilityMemoKey();
+      const raw = localStorage.getItem(key) || '';
+      const set = new Set(raw.split(',').filter(Boolean));
+      if (set.has(entry)) return;
+      set.add(entry);
+      localStorage.setItem(key, [...set].join(','));
+    } catch (_) { /* swallow — memo failure is non-fatal */ }
+  }
+
 }
+
+// schema_v2 一次性迁移：v1 memo 是裸 model 字符串列表，没有 provider 信息且
+// 包含 bug-0004 修复前被错判写入的 builtin provider 伪阳性条目（"deepseek-v4-pro"
+// 等支持 fc 但被误标的模型）。直接清空让用户在新逻辑下重新积累——新逻辑只会在
+// 自定义 provider + 真阳性条件下写入，且 entry 格式是 "provider::model" 全路径。
+(function _migrateCapabilityMemoToV2() {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const SCHEMA_KEY = 'sandbox.incompatible_react_models.schema_version';
+    if (localStorage.getItem(SCHEMA_KEY) === '2') return;
+    localStorage.removeItem('sandbox.incompatible_react_models');
+    localStorage.setItem(SCHEMA_KEY, '2');
+  } catch (_) { /* swallow */ }
+})();
 
 _applyAIServiceMixin(_AIServiceReactMixin);
 

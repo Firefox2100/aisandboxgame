@@ -335,6 +335,8 @@ function _buildApiErrorInfo({
   providerErrorParam = null,
   requestId = null,
   originalName = null,
+  safetyReason = null,    // Gemini 200+审查触发时的 reason 枚举（SAFETY/PROHIBITED_CONTENT/BLOCKLIST/RECITATION/SPII/...）
+  safetyStage = null,     // 'prompt' (输入被拦) | 'output' (生成中切断)
 }) {
   return {
     errorType,
@@ -350,7 +352,26 @@ function _buildApiErrorInfo({
     responseBody,
     elapsedMs: Math.round(performance.now() - startTime),
     originalName,
+    safetyReason,
+    safetyStage,
   };
+}
+
+// Gemini 把内容审查不当 HTTP 错处理——返回 200 + body 字段。这个 helper 检测两种位置：
+// 1) promptFeedback.blockReason: 整个输入被拦（请求一开始就空）
+// 2) candidates[0].finishReason: 输出生成中被切断
+// 详见 docs/API_ERROR_CODES.md §Gemini 段
+const _GEMINI_SAFETY_FINISH_REASONS = new Set([
+  'SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'RECITATION', 'SPII',
+]);
+function _detectGeminiSafetyBlock(data) {
+  const promptBlock = data?.promptFeedback?.blockReason;
+  if (promptBlock) return { reason: promptBlock, stage: 'prompt' };
+  const finishReason = data?.candidates?.[0]?.finishReason;
+  if (finishReason && _GEMINI_SAFETY_FINISH_REASONS.has(finishReason)) {
+    return { reason: finishReason, stage: 'output' };
+  }
+  return null;
 }
 
 /**
@@ -461,10 +482,20 @@ class GeminiAdapter extends BaseAdapter {
     const timeoutMs = 1200000;
     const controller = new AbortController();
     if (abortSignal) {
-      if (abortSignal.aborted) controller.abort();
-      else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      if (abortSignal.aborted) {
+        controller.abort(abortSignal.reason ?? new Error('Upstream signal already aborted'));
+      } else {
+        abortSignal.addEventListener(
+          'abort',
+          () => controller.abort(abortSignal.reason ?? new Error('Upstream signal aborted')),
+          { once: true }
+        );
+      }
     }
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error(`API timeout (${timeoutMs / 1000}s)`)),
+      timeoutMs
+    );
     const startTime = performance.now();
 
     try {
@@ -546,6 +577,24 @@ class GeminiAdapter extends BaseAdapter {
     }
 
     const data = await response.json();
+
+    // Gemini 安全过滤：HTTP 200 但 promptFeedback / finishReason 表明内容被审查拦了——抛 error 走标准错误流程
+    const safetyBlock = _detectGeminiSafetyBlock(data);
+    if (safetyBlock) {
+      const error = new Error(`Gemini safety filter blocked ${safetyBlock.stage}: ${safetyBlock.reason}`);
+      error.apiErrorInfo = _buildApiErrorInfo({
+        provider: this.provider,
+        url,
+        startTime,
+        errorType: 'safety_filtered',
+        httpStatus: 200,
+        responseBody: JSON.stringify(data).slice(0, 500),
+        safetyReason: safetyBlock.reason,
+        safetyStage: safetyBlock.stage,
+      });
+      throw error;
+    }
+
     const totalTime = performance.now() - startTime;
     // Download: 下载响应体的时间
     const downloadTime = totalTime - ttfb;
@@ -717,6 +766,23 @@ class GeminiAdapter extends BaseAdapter {
 
     const totalTime = performance.now() - startTime;
     console.log(`[Gemini Stream] 完成 - 总时间: ${Math.round(totalTime)}ms`);
+
+    // Gemini 安全过滤（流式版）：解析最后一个 chunk 的 promptFeedback / finishReason 看是否被审查拦了
+    const safetyBlock = _detectGeminiSafetyBlock(lastChunkData);
+    if (safetyBlock) {
+      const error = new Error(`Gemini safety filter blocked ${safetyBlock.stage}: ${safetyBlock.reason}`);
+      error.apiErrorInfo = _buildApiErrorInfo({
+        provider: this.provider,
+        url,
+        startTime,
+        errorType: 'safety_filtered',
+        httpStatus: 200,
+        responseBody: JSON.stringify(lastChunkData).slice(0, 500),
+        safetyReason: safetyBlock.reason,
+        safetyStage: safetyBlock.stage,
+      });
+      throw error;
+    }
 
     // 构建标准化响应（含流式中收集的 functionCall parts）
     const finalCandidate = lastChunkData?.candidates?.[0] || {};
@@ -952,7 +1018,7 @@ class OpenAIAdapter extends BaseAdapter {
     customMaxOutputTokens = null
   ) {
     super(config, apiKey, aiService);
-    this.provider = provider; // 'openai' | 'grok' | 'deepseek' | 'siliconflow' | 'openrouter' | 'custom'
+    this.provider = provider; // 'openai' | 'grok' | 'deepseek' | 'siliconflow' | 'custom'
     this.protocolFamily = 'openai';
     this.customName = customName;
     this.customBaseUrl = customBaseUrl;
@@ -968,8 +1034,6 @@ class OpenAIAdapter extends BaseAdapter {
         return 'DeepSeek';
       case 'siliconflow':
         return 'SiliconFlow';
-      case 'openrouter':
-        return 'OpenRouter';
       default:
         return 'OpenAI';
     }
@@ -1018,9 +1082,6 @@ class OpenAIAdapter extends BaseAdapter {
               break;
             case 'siliconflow':
               baseUrl = 'https://api.siliconflow.cn/v1';
-              break;
-            case 'openrouter':
-              baseUrl = 'https://openrouter.ai/api/v1';
               break;
             default:
               baseUrl = 'https://api.openai.com/v1';
@@ -1169,10 +1230,20 @@ class OpenAIAdapter extends BaseAdapter {
     const timeoutMs = 1200000;
     const controller = new AbortController();
     if (abortSignal) {
-      if (abortSignal.aborted) controller.abort();
-      else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      if (abortSignal.aborted) {
+        controller.abort(abortSignal.reason ?? new Error('Upstream signal already aborted'));
+      } else {
+        abortSignal.addEventListener(
+          'abort',
+          () => controller.abort(abortSignal.reason ?? new Error('Upstream signal aborted')),
+          { once: true }
+        );
+      }
     }
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error(`API timeout (${timeoutMs / 1000}s)`)),
+      timeoutMs
+    );
     const startTime = performance.now();
 
     try {
@@ -1725,7 +1796,7 @@ class OpenAIAdapter extends BaseAdapter {
     return null;
   }
 
-  // 思考内容回传：所有 OpenAI 兼容 provider（含 DeepSeek V4 官方、siliconflow、openrouter、
+  // 思考内容回传：所有 OpenAI 兼容 provider（含 DeepSeek V4 官方、siliconflow、
   // Qwen QwQ、GLM 等）都要求 reasoning_content 作为独立字段回传 assistant 消息，否则
   // 开启 thinking 的多轮 tool call 请求会被服务端拒绝（DeepSeek V4 报
   // "The reasoning_content in the thinking mode must be passed back to the API"）。
@@ -2089,10 +2160,20 @@ class AnthropicAdapter extends BaseAdapter {
     const timeoutMs = 1200000;
     const controller = new AbortController();
     if (abortSignal) {
-      if (abortSignal.aborted) controller.abort();
-      else abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      if (abortSignal.aborted) {
+        controller.abort(abortSignal.reason ?? new Error('Upstream signal already aborted'));
+      } else {
+        abortSignal.addEventListener(
+          'abort',
+          () => controller.abort(abortSignal.reason ?? new Error('Upstream signal aborted')),
+          { once: true }
+        );
+      }
     }
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error(`API timeout (${timeoutMs / 1000}s)`)),
+      timeoutMs
+    );
     const startTime = performance.now();
 
     try {

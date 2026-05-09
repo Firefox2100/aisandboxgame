@@ -599,7 +599,7 @@ class _AIServiceSummarySmsMixin {
 
     const timeoutId = setTimeout(() => {
       abortedByTimeout = true;
-      controller.abort();
+      controller.abort(new Error(`Summary fetch timeout (${timeoutMs / 1000}s)`));
     }, timeoutMs);
 
     const canUseAbortSignal =
@@ -607,7 +607,7 @@ class _AIServiceSummarySmsMixin {
     if (canUseAbortSignal) {
       externalAbortHandler = () => {
         abortedByExternal = true;
-        controller.abort();
+        controller.abort(abortSignal.reason ?? new Error('Summary fetch upstream aborted'));
       };
       if (abortSignal.aborted) {
         externalAbortHandler();

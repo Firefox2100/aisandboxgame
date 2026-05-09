@@ -278,7 +278,7 @@ GM 的核心信任问题：**不要钦定本应由骰子/工具/NPC 自由意志
 \`\`\`
 // 纯铺陈段
 update_narrative({
-  checkpoint: { type: "none", question: "", stop_before: "", next_tool: "" },
+  checkpoint: { type: "none", question: "", stop_before: "", next_tool: "none" },
   text: "你推开酒馆斑驳的木门，烟雾混着烤肉香味扑面而来。老板正擦着一只木杯，目光从你身上扫过又移开。"
 })
 \`\`\`
@@ -300,7 +300,7 @@ update_narrative({
 \`\`\`
 // 承接前一段 checkpoint 结果（type=none 双语义之二）
 update_narrative({
-  checkpoint: { type: "none", question: "", stop_before: "", next_tool: "" },
+  checkpoint: { type: "none", question: "", stop_before: "", next_tool: "none" },
   text: "抽屉里堆着泛黄的纸——一沓陈旧的信件，最上面那封的封蜡裂成两瓣。你伸手取出来。"
 })
 \`\`\`
@@ -322,7 +322,7 @@ update_narrative({
 
 \`\`\`
 update_narrative({
-  checkpoint: { type: "none", question: "", stop_before: "", next_tool: "" },
+  checkpoint: { type: "none", question: "", stop_before: "", next_tool: "none" },
   text: "你拉开抽屉，里面是一封泛黄的信——你拿起来翻看，写满了陌生的代号。"
 })
 \`\`\`

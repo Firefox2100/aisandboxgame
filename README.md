@@ -22,7 +22,7 @@ AI Sandbox Game is a browser-based framework for AI-driven text adventures. You 
 
 Bundled example worlds — a default fantasy setting, a cyberpunk noir, and an Eastern cultivation universe — are starting points; the framework is intended to be reskinned for whatever genre you want.
 
-The framework is plain HTML / CSS / JavaScript, runs from any static file server, and works offline as a PWA after first load. Compatible providers include OpenAI, Anthropic, DeepSeek, Google Gemini, OpenRouter, xAI, SiliconFlow, and any OpenAI-compatible endpoint.
+The framework is plain HTML / CSS / JavaScript, runs from any static file server, and works offline as a PWA after first load. Compatible providers include OpenAI, Anthropic, DeepSeek, Google Gemini, xAI, SiliconFlow, and any OpenAI-compatible endpoint.
 
 ## Dual Licensing
 

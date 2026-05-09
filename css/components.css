@@ -2003,15 +2003,15 @@ input[type='range']:disabled {
    doodle 风偏平面，cartoon 硬阴影在这层先关掉，避免方阴影 + 抖动剪影错位。 */
 
 :root[data-skin='cartoon'] {
-  /* doodle 矩形 path（viewBox 100×40）：
+  /* doodle 矩形 path（viewBox 100x40）：
      4 条边各自小幅起伏，4 个角显式用 Q 弧线拉到 viewBox 边角附近后再拐弯，
      避免边到边直接 Bezier 短路导致的"色带凹角"。 */
   --doodle-fill-mask:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M 5,3 Q 18,2 30,3 Q 45,3.8 60,2.5 Q 78,3.5 95,3 Q 97,3 97,5 Q 97.5,15 96.5,22 Q 97.8,30 97,35 Q 97,37 95,37 Q 78,37.5 60,37 Q 45,38 30,37 Q 18,37.8 5,37 Q 3,37 3,35 Q 2.5,25 3.5,18 Q 2,10 3,5 Q 3,3 5,3 Z' fill='%23000'/></svg>");
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M 5,3 Q 18,2 30,3 Q 45,3.8 60,2.5 Q 78,3.5 95,3 Q 97,3 97,5 Q 97.5,15 96.5,22 Q 97.8,30 97,35 Q 97,37 95,37 Q 78,37.5 60,37 Q 45,38 30,37 Q 18,37.8 5,37 Q 3,37 3,35 Q 2.5,25 3.5,18 Q 2,10 3,5 Q 3,3 5,3 Z' fill='%23000'/></svg>"); /* ui-lint-allow: cartoon 主题手调 doodle path */
   --doodle-stroke-mask:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M 5,3 Q 18,2 30,3 Q 45,3.8 60,2.5 Q 78,3.5 95,3 Q 97,3 97,5 Q 97.5,15 96.5,22 Q 97.8,30 97,35 Q 97,37 95,37 Q 78,37.5 60,37 Q 45,38 30,37 Q 18,37.8 5,37 Q 3,37 3,35 Q 2.5,25 3.5,18 Q 2,10 3,5 Q 3,3 5,3 Z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' vector-effect='non-scaling-stroke'/></svg>");
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M 5,3 Q 18,2 30,3 Q 45,3.8 60,2.5 Q 78,3.5 95,3 Q 97,3 97,5 Q 97.5,15 96.5,22 Q 97.8,30 97,35 Q 97,37 95,37 Q 78,37.5 60,37 Q 45,38 30,37 Q 18,37.8 5,37 Q 3,37 3,35 Q 2.5,25 3.5,18 Q 2,10 3,5 Q 3,3 5,3 Z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' vector-effect='non-scaling-stroke'/></svg>"); /* ui-lint-allow: cartoon 主题手调 doodle path */
   --doodle-tab-stroke-mask:
-    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M 8,7 C 22,6.4 39,6.2 58,5.4 C 74,4.8 88,4.2 94,4.2 Q 96.5,4.2 96.8,6.8 C 97.6,14.4 96.8,22.4 97.6,31.8 Q 97.8,35.6 94.2,36.2 C 75.2,36.8 55.6,36.2 36.6,36.4 C 23.8,36.8 12,36.6 8.2,35 Q 5.8,34 5.8,31 C 5.6,22.4 5.2,14.6 5.8,8.8 Q 6,6.6 8,7 Z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' vector-effect='non-scaling-stroke'/></svg>");
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M 8,7 C 22,6.4 39,6.2 58,5.4 C 74,4.8 88,4.2 94,4.2 Q 96.5,4.2 96.8,6.8 C 97.6,14.4 96.8,22.4 97.6,31.8 Q 97.8,35.6 94.2,36.2 C 75.2,36.8 55.6,36.2 36.6,36.4 C 23.8,36.8 12,36.6 8.2,35 Q 5.8,34 5.8,31 C 5.6,22.4 5.2,14.6 5.8,8.8 Q 6,6.6 8,7 Z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round' stroke-linecap='round' vector-effect='non-scaling-stroke'/></svg>"); /* ui-lint-allow: cartoon 主题手调 doodle path */
 }
 
 :root[data-skin='cartoon'] :is(.btn-primary, .btn-secondary, .btn-ghost, .btn-danger) {
@@ -2128,4 +2128,20 @@ input[type='range']:disabled {
   mask-repeat: no-repeat;
   pointer-events: none;
   z-index: -1;
+}
+
+/* ============================================
+   Cartoon — 聊天首字裁切修复
+   ============================================
+   cartoon 主题把 --radius-md 抬到 24px（metro 是 16px），气泡 .chat-message-content
+   border-radius:24px + overflow:hidden + padding-inline:20px，左上圆角弧线把首字
+   （如"为"/"设"）的左半截切掉。
+   修复：把气泡圆角降回 --radius-sm（cartoon 16px），保留气泡仍是 cartoon 偏圆但
+   不再咬字；同时给 AI 标签 ::before 头像和首字之间多 4px 间距。 */
+:root[data-skin='cartoon'] .chat-user-label {
+  gap: 14px;
+}
+
+:root[data-skin='cartoon'] .chat-message-content {
+  border-radius: var(--radius-sm);
 }

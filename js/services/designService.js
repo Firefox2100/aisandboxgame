@@ -1351,6 +1351,10 @@ ${priorityHint}${modeHint}`;
     let text = candidate.replace(/^\uFEFF/, '').trim();
     text = this._stripCodeFence(text);
     text = this._normalizeLikelyJSONSmartQuotes(text);
+    // Stage 2 \u65F6\u6A21\u578B\u5076\u5C14\u4F1A\u585E JS \u98CE\u683C\u6CE8\u91CA / \u5355\u5F15\u53F7\u5B57\u7B26\u4E32 / \u4E0D\u5E26\u5F15\u53F7\u7684 key,
+    // \u8DD1\u539F\u751F JSON.parse \u76F4\u63A5\u5931\u8D25\u3002\u5728 balanced extraction \u4E4B\u524D\u5148\u5265\u5E38\u89C1 JS-isms,
+    // \u63D0\u9AD8\u89E3\u6790\u6210\u529F\u7387, \u662F bug-0008 / bug-0003 \u540C\u7C7B\u95EE\u9898\u7684\u515C\u5E95\u3002
+    text = this._stripJsStyleComments(text);
 
     const balancedObject = this._extractFirstBalancedJSONObject(text);
     if (balancedObject) {
@@ -1359,7 +1363,64 @@ ${priorityHint}${modeHint}`;
 
     text = this._removeTrailingCommas(text);
     text = this._escapeBareControlsInStrings(text);
+    text = this._quoteBareJsonKeys(text);
     return text.trim();
+  }
+
+  // \u5265 // \u884C\u6CE8\u91CA + /* */ \u5757\u6CE8\u91CA\u3002\u7B80\u5316\u5904\u7406: \u4E0D\u533A\u5206\u662F\u5426\u5728\u5B57\u7B26\u4E32\u5185,
+  // \u56E0\u4E3A JSON \u5B57\u7B26\u4E32\u91CC\u51FA\u73B0 // \u6216 /* \u6781\u5C11\u89C1 (\u5408\u6CD5 JSON \u4E5F\u5141\u8BB8\u5B57\u7B26\u4E32\u4E2D\u542B\u8FD9\u4E9B\u5B57\u7B26,
+  // \u8FD9\u662F false positive \u98CE\u9669\u70B9)\u3002\u4F46 AI \u8F93\u51FA\u7684\u5B57\u7B26\u4E32\u5185\u542B // \u7684\u6982\u7387\u8FDC\u4F4E\u4E8E
+  // AI \u5199\u9519\u4E86\u5728 JSON \u5916\u52A0\u6CE8\u91CA\u7684\u6982\u7387, \u6240\u4EE5\u6536\u76CA > \u98CE\u9669\u3002
+  _stripJsStyleComments(text) {
+    if (typeof text !== 'string') return '';
+    let out = '';
+    let i = 0;
+    let inString = false;
+    let stringChar = '"';
+    while (i < text.length) {
+      const c = text[i];
+      const next = text[i + 1];
+      if (inString) {
+        out += c;
+        if (c === '\\' && i + 1 < text.length) {
+          out += text[i + 1];
+          i += 2;
+          continue;
+        }
+        if (c === stringChar) inString = false;
+        i++;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        inString = true;
+        stringChar = c;
+        out += c;
+        i++;
+        continue;
+      }
+      if (c === '/' && next === '/') {
+        // \u8DF3\u5230\u884C\u5C3E
+        while (i < text.length && text[i] !== '\n') i++;
+        continue;
+      }
+      if (c === '/' && next === '*') {
+        // \u8DF3\u5230 */
+        i += 2;
+        while (i + 1 < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+        i += 2;
+        continue;
+      }
+      out += c;
+      i++;
+    }
+    return out;
+  }
+
+  // \u7ED9\u88F8 key \u52A0\u53CC\u5F15\u53F7 (e.g. `{ name: "x" }` \u2192 `{ "name": "x" }`)\u3002
+  // \u53EA\u5339\u914D { \u6216 , \u540E\u9762\u7D27\u8DDF unquoted-id \u7D27\u8DDF : \u7684\u6A21\u5F0F, \u907F\u514D\u8BEF\u4F24\u5B57\u7B26\u4E32\u5185\u5BB9\u3002
+  _quoteBareJsonKeys(text) {
+    if (typeof text !== 'string') return '';
+    return text.replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)(\s*:)/g, '$1"$2"$3');
   }
 
   _normalizeLikelyJSONSmartQuotes(text) {

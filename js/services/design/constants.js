@@ -31,7 +31,6 @@ const DESIGN_REQUIRED_KEY_PROVIDERS = new Set([
   'grok',
   'anthropic',
   'siliconflow',
-  'openrouter',
 ]);
 const DESIGN_CHAT_HISTORY_LIMIT = 120;
 const P1_PROMPT_TEXT_MAX_LEN = 400;

@@ -73,7 +73,7 @@ class _DesignServiceP2Mixin {
     const runToken = ++this.phase2RunToken;
     if (this.phase2AbortController) {
       try {
-        this.phase2AbortController.abort();
+        this.phase2AbortController.abort(new Error('Phase 2 已中止'));
       } catch (_e) {
         /* ignore */
       }
@@ -2068,7 +2068,22 @@ class _DesignServiceP2Mixin {
         this.designConfig?.step3_fields?._worldTermsSource?.time_precision || 'time'
       )
     ) {
-      this._pushStage2Issue(report, 'fatal', '`opening_greeting` 缺少符合当前设定精度的时间示例');
+      // 从抽象描述升级为带具体示例的 correction prompt: 第二轮反馈时 AI 收到的就是这条消息,
+      // 给个完整时间戳样例几乎一定能照着写, 解决 "AI 重试一次仍不通过" 的循环。
+      const precision = this.designConfig?.step3_fields?._worldTermsSource?.time_precision || 'time';
+      const eraName = this.designConfig?.step3_fields?._worldTermsSource?.eraName || '纪年名';
+      const exampleByPrecision = {
+        time: `\`${eraName}214.02.14 09:30\`（完整年.月.日 时:分）`,
+        day: `\`${eraName}214.02.14\`（年.月.日）`,
+        month: `\`${eraName}214.02\`（年.月）`,
+        year: `\`${eraName}214\`（仅年）`,
+      };
+      const example = exampleByPrecision[precision] || exampleByPrecision.time;
+      this._pushStage2Issue(
+        report,
+        'fatal',
+        `\`opening_greeting\` 缺少符合当前设定精度（${precision}）的时间戳示例。请在开场白中至少包含一个形如 ${example} 的完整时间戳，让玩家能选择不同时代起点。`
+      );
     }
 
     if (typeof openingGreeting === 'string' && openingGreeting.trim()) {

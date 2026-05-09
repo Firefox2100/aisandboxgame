@@ -58,7 +58,7 @@ class _AIServiceProviderMixin {
 
   /**
    * 测试 API 连接是否可用
-   * @param {string} providerId - 服务商 ID ('gemini', 'deepseek', 'openai', 'grok', 'anthropic', 'siliconflow', 'openrouter', 或自定义 ID)
+   * @param {string} providerId - 服务商 ID ('gemini', 'deepseek', 'openai', 'grok', 'anthropic', 'siliconflow', 或自定义 ID)
    * @param {string} apiKey - API Key
    * @param {string} [model] - 模型名称（自定义 provider 必填）
    * @param {string} [baseUrl] - Base URL（仅自定义 provider 需要）
@@ -81,7 +81,9 @@ class _AIServiceProviderMixin {
       });
       if (!response.ok) {
         const err = await response.json().catch(() => null);
-        throw new Error(err?.error?.message || `HTTP ${response.status}`);
+        const e = new Error(err?.error?.message || `HTTP ${response.status}`);
+        e.status = response.status;
+        throw e;
       }
       const data = await response.json();
       // Anthropic /v1/models 返回 { data: [{ id, ... }] }，DeepSeek 兼容端不一定提供该接口
@@ -93,7 +95,9 @@ class _AIServiceProviderMixin {
     });
     if (!response.ok) {
       const err = await response.json().catch(() => null);
-      throw new Error(err?.error?.message || `HTTP ${response.status}`);
+      const e = new Error(err?.error?.message || `HTTP ${response.status}`);
+      e.status = response.status;
+      throw e;
     }
     const data = await response.json();
     return (data.data || []).map(m => m.id).filter(Boolean).sort();
@@ -114,11 +118,15 @@ class _AIServiceProviderMixin {
       } else if (providerId === 'custom' && protocol === 'anthropic') {
         return await this._testAnthropicCustom(apiKey, model, baseUrl, startTime);
       } else {
-        // OpenAI 兼容: openai / deepseek / grok / siliconflow / openrouter / custom (默认协议)
+        // OpenAI 兼容: openai / deepseek / grok / siliconflow / custom (默认协议)
         return await this._testOpenAICompatible(providerId, apiKey, model, baseUrl, startTime);
       }
     } catch (e) {
       const latency = Math.round(performance.now() - startTime);
+      // fetch 抛 TypeError = 网络/CORS 层挂掉，message 是 "Load failed" 这种空话；让 UI 层用本地化文案替代
+      if (e.name === 'TypeError') {
+        return { ok: false, code: 'network', message: e.message || 'Network error', latency };
+      }
       return { ok: false, message: e.message || '连接失败', latency };
     }
   }
@@ -137,7 +145,7 @@ class _AIServiceProviderMixin {
       } catch (_) {
         /* ignore */
       }
-      return { ok: false, message: msg, latency };
+      return { ok: false, message: msg, latency, status: response.status };
     }
 
     const data = await response.json();
@@ -184,7 +192,7 @@ class _AIServiceProviderMixin {
       } catch (_) {
         /* ignore */
       }
-      return { ok: false, message: msg, latency };
+      return { ok: false, message: msg, latency, status: response.status };
     }
 
     const data = await response.json();
@@ -240,7 +248,7 @@ class _AIServiceProviderMixin {
       } catch (_) {
         /* ignore */
       }
-      return { ok: false, message: msg, latency };
+      return { ok: false, message: msg, latency, status: response.status };
     }
 
     const data = await response.json();
@@ -276,8 +284,6 @@ class _AIServiceProviderMixin {
         return new OpenAIAdapter(config, apiKey, this, 'grok');
       case 'siliconflow':
         return new OpenAIAdapter(config, apiKey, this, 'siliconflow');
-      case 'openrouter':
-        return new OpenAIAdapter(config, apiKey, this, 'openrouter');
       case 'anthropic':
         return new AnthropicAdapter(config, apiKey, this);
       default:

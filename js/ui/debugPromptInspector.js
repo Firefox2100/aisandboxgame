@@ -245,7 +245,7 @@
           <div><b>Category</b></div><div>${escapeHtml(block.category || '?')}</div>
           <div><b>Source</b></div><div>${escapeHtml(block.source || '?')}</div>
           <div><b>Origin</b></div><div>${escapeHtml(originStr)}</div>
-          <div><b>Cacheable</b></div><div>${block.cacheable ? '✓ (Anthropic prompt cache 可命中)' : '✗ (volatile)'}</div>
+          <div><b>Cacheable</b></div><div>${block.cacheable ? '✓ (Anthropic prompt cache 可命中)' : '✗ (volatile)'}</div><!-- ui-lint-allow: debug 视图装饰勾叉 -->
           <div><b>Condition</b></div><div>${escapeHtml(meta?.conditionDesc || 'always')}</div>
           <div><b>Description</b></div><div>${escapeHtml(meta?.description || '—')}</div>
           ${meta?.relatedTools?.length ? `<div><b>Related tools</b></div><div>${meta.relatedTools.map(t => `<code>${escapeHtml(t)}</code>`).join(', ')}</div>` : ''}
@@ -268,7 +268,7 @@
         ta.select();
         try {
           document.execCommand('copy');
-          copyBtn.textContent = '已复制 ✓';
+          copyBtn.textContent = '已复制 ✓'; /* ui-lint-allow: 复制成功反馈装饰勾 */
           setTimeout(() => { copyBtn.textContent = '复制文本'; }, 1500);
         } catch (e) {
           console.warn('复制失败', e);

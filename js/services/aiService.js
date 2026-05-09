@@ -43,7 +43,6 @@ const BUILTIN_PROVIDER_DEFAULT_MODELS = {
   grok: 'grok-4-1-fast-reasoning',
   anthropic: 'claude-sonnet-4-6',
   siliconflow: 'deepseek-ai/DeepSeek-R1',
-  openrouter: 'deepseek/deepseek-r1',
 };
 
 const DEEPSEEK_THINKING_LEVELS = Object.freeze(['off', 'high', 'max']);
@@ -54,7 +53,6 @@ const BUILTIN_PROVIDER_DEFAULT_BASE_URLS = {
   deepseek: 'https://api.deepseek.com',
   grok: 'https://api.x.ai/v1',
   siliconflow: 'https://api.siliconflow.cn/v1',
-  openrouter: 'https://openrouter.ai/api/v1',
 };
 const REQUIRED_MODULES = Object.freeze([
   'react',
@@ -268,7 +266,7 @@ class AIService {
     if (!this._pendingPlayerItemActions.length) return '';
     const lines = ['## 玩家在本回合开始前的主动物品操作（已发生，请在叙事中体现）', ''];
     for (const a of this._pendingPlayerItemActions) {
-      const countTail = a.count > 1 ? ` ×${a.count}` : '';
+      const countTail = a.count > 1 ? ` ×${a.count}` : ''; /* ui-lint-allow: 物品计数乘号 */
       lines.push(`- 玩家${a.verb}了「${a.itemName}」${countTail}`);
     }
     return lines.join('\n');
@@ -402,7 +400,7 @@ class AIService {
    */
   cancelRequest() {
     if (this._requestAbortController) {
-      this._requestAbortController.abort();
+      this._requestAbortController.abort(new Error('User cancelled'));
       this._requestAbortController = null;
     }
   }
@@ -1021,6 +1019,14 @@ class AIService {
     return BUILTIN_PROVIDER_DEFAULT_MODELS.gemini;
   }
 
+  // 判断 providerId 是否为用户自定义服务商。用于 ReAct 错误分类时决定是否允许下
+  // "no_function_calling" 这种严肃指控——builtin provider 内置模型都支持 fc，那条路径上的
+  // 误判风险远高于真阳性，所以仅在 customProviders 路径下保留 fc 不支持的判定。
+  isCustomProvider(providerId) {
+    if (!providerId || typeof providerId !== 'string') return false;
+    return !Object.prototype.hasOwnProperty.call(BUILTIN_PROVIDER_DEFAULT_MODELS, providerId);
+  }
+
   // 获取指定模块应使用的模型
   getModelForModule(module, options = {}) {
     return this.getModuleConfig(module, options).model;
@@ -1333,7 +1339,7 @@ class AIService {
 
     lines.push(
       active.length > 0
-        ? '已持有：' + active.map(it => `${it.name}×${it.count}`).join('、')
+        ? '已持有：' + active.map(it => `${it.name}×${it.count}`).join('、') /* ui-lint-allow: 物品计数乘号 */
         : '已持有：（空——玩家还没获得任何物品）'
     );
 

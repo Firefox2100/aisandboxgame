@@ -1019,7 +1019,7 @@ html[data-ui-language='en'] .ui-label-en {
 
 /* .dcv-actions .btn-danger:hover 走 components.css 基线 hover */
 
-/* ≤1150px：操作按键栏切换为纯图标 36×36（等价于 .btn-secondary.btn-icon） */
+/* ≤1150px：操作按键栏切换为纯图标 36x36（等价于 .btn-secondary.btn-icon） */
 @media (max-width: 1150px) {
   .dcv-subitem-actions > button {
     padding: 0;
@@ -1036,7 +1036,7 @@ html[data-ui-language='en'] .ui-label-en {
   }
 }
 
-/* ≤480px：进一步缩到 28×28（等价于 .btn-secondary.btn-icon.btn-sm） */
+/* ≤480px：进一步缩到 28x28（等价于 .btn-secondary.btn-icon.btn-sm） */
 @media (max-width: 480px) {
   .dcv-subitem-actions > button {
     width: var(--btn-icon-sm-size);
@@ -4430,10 +4430,8 @@ header h1 {
 }
 
 .icon-delete {
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2'/%3E%3C/svg%3E")
-    no-repeat center / contain;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2'/%3E%3C/svg%3E")
-    no-repeat center / contain;
+  -webkit-mask: url('../assets/icons/delete.svg') no-repeat center / contain;
+  mask: url('../assets/icons/delete.svg') no-repeat center / contain;
   background-color: currentColor;
 }
 
@@ -4443,18 +4441,14 @@ header h1 {
 }
 
 .icon-regenerate {
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 2v6h-6M3 12a9 9 0 0115.36-6.36L21 8M3 22v-6h6M21 12a9 9 0 01-15.36 6.36L3 16'/%3E%3C/svg%3E")
-    no-repeat center / contain;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 2v6h-6M3 12a9 9 0 0115.36-6.36L21 8M3 22v-6h6M21 12a9 9 0 01-15.36 6.36L3 16'/%3E%3C/svg%3E")
-    no-repeat center / contain;
+  -webkit-mask: url('../assets/icons/regenerate.svg') no-repeat center / contain;
+  mask: url('../assets/icons/regenerate.svg') no-repeat center / contain;
   background-color: currentColor;
 }
 
 .icon-edit {
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7'/%3E%3Cpath d='M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z'/%3E%3C/svg%3E")
-    no-repeat center / contain;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7'/%3E%3Cpath d='M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z'/%3E%3C/svg%3E")
-    no-repeat center / contain;
+  -webkit-mask: url('../assets/icons/edit.svg') no-repeat center / contain;
+  mask: url('../assets/icons/edit.svg') no-repeat center / contain;
   background-color: currentColor;
 }
 
@@ -6538,10 +6532,6 @@ body:has(#chat-container.onboarding-active) #right-sidebar .metro-tile {
 
 .chat-message.ai-message[data-ai-provider='siliconflow'] .chat-user-label::before {
   background-image: url('../assets/logos/siliconflow.svg');
-}
-
-.chat-message.ai-message[data-ai-provider='openrouter'] .chat-user-label::before {
-  background-image: url('../assets/logos/openrouter.svg');
 }
 
 /* 推荐模式"沙盒"门面：用 PWA 图标整圆铺满，不走 logo + 白底的 monochrome 视觉 */
@@ -11249,7 +11239,7 @@ html[data-ui-language='en'] [data-action~="save-toolbar-btn"] .btn-label-en {
   animation: cr-warning-pulse 2.4s ease-in-out infinite;
 }
 
-/* 保存按钮（编辑模式 ✓）轻微 pulse 提示用户可保存 */
+/* 保存按钮（编辑模式时）轻微 pulse 提示用户可保存 */
 @keyframes cr-save-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-success) 0%, transparent); }
   50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-success) 22%, transparent); }

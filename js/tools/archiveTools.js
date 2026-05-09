@@ -77,7 +77,9 @@ function refreshArchiveTools() {
       required: ['query'],
     },
     execute(args) {
-      const query = (args.query || '').toLowerCase();
+      // 类型防御：LLM 偶尔传 number/object 导致 .toLowerCase() 崩
+      const rawQuery = args && args.query;
+      const query = (typeof rawQuery === 'string' ? rawQuery : '').trim().toLowerCase();
       if (!query) return '[错误] 请提供搜索关键词';
 
       // 每次执行都读最新 entityStore（登场世界扩展后实时可搜）
@@ -88,7 +90,8 @@ function refreshArchiveTools() {
       // 搜索 NPC 档案
       const npcStore = window.npcStore;
       if (npcStore) {
-        const allNpcs = npcStore.getAllMap();
+        // 防御方法不存在的情况 (压缩后报 _HEX[_HEX(...)] is not a function 那条 bug 就是这里)
+        const allNpcs = (typeof npcStore.getAllMap === 'function' ? npcStore.getAllMap() : null) || {};
         for (const [npcId, npc] of Object.entries(allNpcs)) {
           const searchText = JSON.stringify(npc).toLowerCase();
           if (searchText.includes(query)) {
@@ -102,7 +105,8 @@ function refreshArchiveTools() {
 
       // 搜索地点/世界实体
       for (const entityId of entityIds) {
-        const fullText = arch.getWorldEntity(entityId);
+        // 同上, 方法存在性守卫——同函数里别处的 _getTimelineEvents/getPromptModuleDirect 都用了 ?.()
+        const fullText = (typeof arch.getWorldEntity === 'function' ? arch.getWorldEntity(entityId) : '') || '';
         if (fullText && fullText.toLowerCase().includes(query)) {
           // 取前80字作为摘要
           const snippet = fullText.replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -206,10 +210,10 @@ function refreshArchiveTools() {
       }
 
       if (results.length === 0) {
-        return `[无结果] 未找到与 "${args.query}" 相关的内容`;
+        return `[无结果] 未找到与 "${query}" 相关的内容`;
       }
 
-      console.log(`[search_world] "${args.query}": ${results.length} 条结果`);
+      console.log(`[search_world] "${query}": ${results.length} 条结果`);
       return results.join('\n');
     },
     source: 'archive',

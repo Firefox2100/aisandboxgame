@@ -2,17 +2,12 @@
 // AI Adventure Game - Main Entry Point
 // ============================================
 
-// 全局错误处理
+// 全局错误处理：只负责 toast 用户反馈。
+// 错误的结构化遥测由 analyticsService 的 error.uncaught/error.rejection listener 处理
+// （含完整 stack/url/line/col）；DevTools 由浏览器原生输出处理（onerror return false
+// 不抑制 console 输出）。这里再 console.error 一次属于纯冗余，且经 console.error wrap
+// 后会变成无意义的 "[object Object]" 噪声事件。
 window.onerror = (msg, url, lineNo, columnNo, error) => {
-  // 详细日志输出
-  console.error('=== Global Error ===');
-  console.error('Message:', msg);
-  console.error('URL:', url);
-  console.error('Line:', lineNo, 'Column:', columnNo);
-  console.error('Error object:', error);
-  console.error('Stack:', error?.stack);
-
-  // 构建更详细的错误提示
   let errorDetail = error?.message || msg;
   if (url && lineNo) {
     const fileName = url.split('/').pop();
@@ -26,7 +21,6 @@ window.onerror = (msg, url, lineNo, columnNo, error) => {
 };
 
 window.addEventListener('unhandledrejection', event => {
-  console.error('Unhandled rejection:', event.reason);
   if (typeof showToast === 'function') {
     showToast('请求失败:' + (event.reason?.message || '未知错误'));
   }
@@ -1226,14 +1220,80 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 模式切换滑块
   const modeToggle = document.getElementById('mode-toggle');
   if (modeToggle) {
-    modeToggle.addEventListener('click', async () => {
+    modeToggle.addEventListener('click', async (event) => {
       // 防止在发送消息时切换
       if (isSending) {
         showToast('请等待回复完成后再切换模式');
         return;
       }
+
+      // ─────── Anti-pingpong shield ───────
+      // 线上反馈"输入时界面抖动 + 读档后设计/游戏反复切换 + 刷新坏档"。
+      // Analytics 显示某 power user 33s 内被触发 14 次 mode_toggled——肉眼手点
+      // 不出来这种节奏，必然是某段代码自动调 .click()。三道闸：
+      //   (a) DOM class 与全局 isDesignMode desync → 强制 resync 后 abort
+      //   (b) 300ms 内的二次切换 → 节流（带堆栈，定位调用方）
+      //   (c) handler 仍在执行 → 拒绝 reentry（handler 内含 await）
+      const _domDesign = modeToggle.classList.contains('design-mode');
+      const _stateDesign = typeof isDesignMode !== 'undefined' && !!isDesignMode;
+      if (_domDesign !== _stateDesign) {
+        modeToggle.classList.toggle('design-mode', _stateDesign);
+        const _g = modeToggle.querySelector('.tab[data-mode="game"]');
+        const _d = modeToggle.querySelector('.tab[data-mode="design"]');
+        _g?.classList.toggle('is-active', !_stateDesign);
+        _d?.classList.toggle('is-active', _stateDesign);
+        const _ml = document.getElementById('main-layout');
+        if (_ml) _ml.classList.toggle('design-mode-active', _stateDesign);
+        console.warn('[mode-toggle] desync — DOM class != isDesignMode, force resync, abort');
+        try {
+          window.analyticsService?.track?.('feature.mode_toggle_blocked', {
+            reason: 'desync',
+            state: _stateDesign,
+            dom: _domDesign,
+            trusted: !!(event && event.isTrusted),
+          });
+        } catch (_) { /* noop */ }
+        return;
+      }
+      const _now = Date.now();
+      const _gap = _now - (window._lastModeToggleAt || 0);
+      if (window._lastModeToggleAt && _gap < 300) {
+        console.warn('[mode-toggle] throttled gap=' + _gap + 'ms', new Error('mode-toggle-throttle').stack);
+        try {
+          window.analyticsService?.track?.('feature.mode_toggle_blocked', {
+            reason: 'throttle',
+            gap_ms: _gap,
+            trusted: !!(event && event.isTrusted),
+          });
+        } catch (_) { /* noop */ }
+        return;
+      }
+      if (window._modeToggleBusy) {
+        console.warn('[mode-toggle] busy — reject reentry');
+        try {
+          window.analyticsService?.track?.('feature.mode_toggle_blocked', {
+            reason: 'busy',
+            trusted: !!(event && event.isTrusted),
+          });
+        } catch (_) { /* noop */ }
+        return;
+      }
+      if (event && event.isTrusted === false) {
+        // 程序触发——上报 trace，下次发版后能从 Analytics 看到调用方
+        console.warn('[mode-toggle] programmatic trigger', new Error('mode-toggle-programmatic').stack);
+        try {
+          window.analyticsService?.track?.('feature.mode_toggle_programmatic', {
+            to: _stateDesign ? 'game' : 'design',
+          });
+        } catch (_) { /* noop */ }
+      }
+      window._lastModeToggleAt = _now;
+      window._modeToggleBusy = true;
+      // ─────── /Anti-pingpong shield ───────
+
       let needsApiKeyHint = false;
 
+      try {
       // 切到设计模式前预检 API Key——避免用户输完想法才在 chat 里看到错误
       const switchingIntoDesign = !modeToggle.classList.contains('design-mode');
       if (
@@ -1336,7 +1396,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           : null;
 
         // 进入设计模式：保存游戏历史，加载设计历史
-        window._gameChatHistory = chatHistory;
+        // 失忆 loop 防御：若 chatHistory 已经是 designChatHistory 的别名（异常 reentry 场景），
+        // 不能用它覆盖 _gameChatHistory——否则游戏历史会被设计历史顶掉，丢档+开局失忆 loop
+        if (chatHistory !== designChatHistory) {
+          window._gameChatHistory = chatHistory;
+        } else {
+          console.warn('[mode-toggle] chatHistory already aliased to designChatHistory — preserve _gameChatHistory');
+        }
         chatHistory = designChatHistory;
         // 初始化设计服务
         if (typeof initDesignService === 'function') {
@@ -1467,6 +1533,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (!isDesign && needsApiKeyHint && typeof addMessage === 'function') {
         addMessage(getMissingApiKeyHint(), 'AI', 'ai');
+      }
+      } finally {
+        window._modeToggleBusy = false;
       }
     });
   }

@@ -240,8 +240,9 @@ class SummaryService {
     const epochBefore = this._generationEpoch;
 
     try {
-      // 调用 AI 生成总结
-      const summary = await aiService.generateSummary(contentToSummarize);
+      // 调用 AI 生成总结。包了一层网络重试避免 Safari "Load failed" 单次抖动直接报失败,
+      // 用户没必要为一次网络毛刺手动点重试。只对网络类错误重试 (不重试用户取消/4xx)。
+      const summary = await this._generateSummaryWithRetry(contentToSummarize);
 
       // 异步期间发生了回滚，丢弃结果
       if (this._generationEpoch !== epochBefore) {
@@ -344,6 +345,25 @@ class SummaryService {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // 网络抖动自动重试。针对 bug-0011 ("Summary Load failed" Safari 网络毛刺) 加的兜底,
+  // 只重试网络类错误, 不重试用户取消/4xx 业务错误。指数退避 800ms / 1600ms。
+  async _generateSummaryWithRetry(content, maxRetries = 2) {
+    let lastErr;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await aiService.generateSummary(content);
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err?.message || err || '');
+        const isNetwork = /Load failed|NetworkError|Failed to fetch|network error/i.test(msg);
+        if (!isNetwork || attempt === maxRetries) throw lastErr;
+        const delay = 800 * Math.pow(2, attempt);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
   }
 
   // 绑定总结项的按键事件

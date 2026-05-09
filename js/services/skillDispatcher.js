@@ -107,6 +107,11 @@ class SkillDispatcher {
       });
     }
 
+    // 打开 UI 诊断窗口：追"卡住/横跳只在 update_panel 阶段"症状用，
+    // 上报 moveBarToBottom / relocate / refreshChatUI 调用时序。
+    window.__uiDiag?.setSettlement?.(true);
+    window.__uiDiag?.track?.('diag.settlement.start', { skills: this.list() });
+
     const startTime = performance.now();
 
     // 并发执行
@@ -130,6 +135,13 @@ class SkillDispatcher {
         totalDuration: result.duration,
       });
     }
+
+    window.__uiDiag?.track?.('diag.settlement.complete', {
+      duration_ms: Math.round(result.duration),
+      completed_tools: result.completedTools,
+      failed_skills: result.failedSkills,
+    });
+    window.__uiDiag?.setSettlement?.(false);
 
     console.log(
       `[SkillDispatcher] dispatch 完成: ${result.completedTools.length} tools OK, ${result.failedSkills.length} skills failed, ${Math.round(result.duration)}ms`

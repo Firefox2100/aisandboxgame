@@ -61,7 +61,7 @@
             next_tool: {
               type: 'string',
               enum: [
-                '',
+                'none',
                 'get_state',
                 'update_item',
                 'search_world',
@@ -69,7 +69,7 @@
                 'get_npc_reaction',
               ],
               description:
-                '本段结束后应当调用哪个工具来解决 question。type=none 时填空字符串 ""。可选值（schema 强制 enum）：get_state / update_item / search_world / get_rule / get_npc_reaction。【语义】item_check 类不确定性应配 update_item（直接尝试扣减并由 runtime 判定库存是否足够）；hidden_state 类不确定性应配 4 个读类工具之一（先查再叙）。【Phase 2 latch】声明非-none type 后系统会打开 latch——下一轮工具调用必须包含你声明的 next_tool 才能关闭，否则后续 update_narrative / update_choices 会被拒绝。',
+                '本段结束后应当调用哪个工具来解决 question。type=none 时填 "none"（哨兵值，表示不打开 latch）。可选值（schema 强制 enum）：get_state / update_item / search_world / get_rule / get_npc_reaction。【语义】item_check 类不确定性应配 update_item（直接尝试扣减并由 runtime 判定库存是否足够）；hidden_state 类不确定性应配 4 个读类工具之一（先查再叙）。【Phase 2 latch】声明非-none type 后系统会打开 latch——下一轮工具调用必须包含你声明的 next_tool 才能关闭，否则后续 update_narrative / update_choices 会被拒绝。',
             },
           },
           required: ['type', 'question', 'stop_before', 'next_tool'],

@@ -40,7 +40,6 @@ function _formatAIFailureMessageForActions(error) {
     anthropic: 'Anthropic',
     grok: 'Grok',
     siliconflow: 'SiliconFlow',
-    openrouter: 'OpenRouter',
     custom: 'Custom',
     tool_engine: 'ToolEngine',
     codeengine: 'CodeEngine',

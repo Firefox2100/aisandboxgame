@@ -48,5 +48,14 @@
     return (data && data[key]) || (data && data['zh-CN']) || [];
   }
 
-  window.changelogService = { loadChangelog, getEntriesForLocale };
+  // Synchronous read from the in-memory cache. Returns the latest changelog
+  // entry (`{ version, ... }`) or `null` if `loadChangelog()` has not yet
+  // resolved. Used by analyticsService to stamp `app_version` on events.
+  function getLatest() {
+    if (!cached) return null;
+    const arr = (cached['zh-CN']) || (cached['en']) || [];
+    return arr[0] || null;
+  }
+
+  window.changelogService = { loadChangelog, getEntriesForLocale, getLatest };
 })();
