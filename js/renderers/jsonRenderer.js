@@ -123,6 +123,10 @@ const jsonRenderer = {
    * @returns {string} 处理后的文本
    */
   processCodeBlocks(text, uid = null) {
+    // 入参守卫: undefined/null 直接返回, 避免 line ~135 的 text.slice() 炸。
+    // RegExp.exec(undefined) 内部把 undefined 强转成字符串 'undefined' 跑通 regex,
+    // 然后到 text.slice() 才在真正的 undefined 上抛 TypeError, 堆栈定位反而到这里。
+    if (typeof text !== 'string') return text;
     // 匹配 ```json ... ``` 或 ``` {...} ``` 代码块
     const jsonBlockRegex = /```(?:json)?\s*([\s\S]*?)```/g;
     const cards = [];
@@ -196,6 +200,7 @@ const jsonRenderer = {
    * @returns {string} 处理后的文本
    */
   processRawJson(text, uid = null) {
+    if (typeof text !== 'string') return text;
     const trimmed = text.trim();
 
     // 快速检查:必须以 { 开头

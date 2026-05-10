@@ -3470,7 +3470,39 @@
 }
 
 #settings-modal .custom-provider-row .cp-field.cp-field-name {
-  grid-template-columns: 56px minmax(0, 1fr) auto;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+}
+
+/* ─── 自定义服务商状态徽章 (未测试 / 通过 / 失败) ─── */
+#settings-modal .custom-provider-row .cp-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+#settings-modal .custom-provider-row .cp-status-badge .material-symbols-outlined {
+  font-size: 20px;
+  font-variation-settings: 'FILL' 1;
+}
+
+#settings-modal .custom-provider-row .cp-status-badge[data-status="pass"] {
+  color: var(--status-success);
+  background: color-mix(in srgb, var(--status-success) 12%, transparent);
+}
+
+#settings-modal .custom-provider-row .cp-status-badge[data-status="fail"] {
+  color: var(--status-danger);
+  background: color-mix(in srgb, var(--status-danger) 12%, transparent);
+}
+
+#settings-modal .custom-provider-row .cp-status-badge[data-status="untested"] {
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--text-soft) 14%, transparent);
 }
 
 #settings-modal .custom-provider-row .cp-field.cp-field-key {
@@ -3539,6 +3571,16 @@
 #settings-modal .custom-provider-row .cp-field.cp-field-model {
   grid-template-columns: 56px minmax(0, 1fr) auto;
   position: relative;
+}
+
+#settings-modal .custom-provider-row .cp-model.cp-model-invalid {
+  border-color: color-mix(in srgb, var(--status-danger) 50%, transparent);
+  background: color-mix(in srgb, var(--status-danger) 4%, transparent);
+}
+
+#settings-modal .custom-provider-row .cp-model.cp-model-invalid:focus {
+  border-color: color-mix(in srgb, var(--status-danger) 60%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--status-danger) 10%, transparent);
 }
 
 #settings-modal .custom-provider-row [data-action~="cp-fetch-models-btn"] {
@@ -4332,7 +4374,7 @@
   }
 
   #settings-modal .custom-provider-row .cp-field.cp-field-name {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto auto;
   }
 
   #settings-modal .custom-provider-row .cp-field.cp-field-name .cp-label {

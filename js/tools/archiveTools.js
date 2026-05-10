@@ -26,6 +26,109 @@ function _normalizeArchiveToolText(text, maxLength = 120) {
 }
 
 /**
+ * Query 分词：按空白和中英文标点切，过滤短 token，去重
+ * 整词作单 token——"失窃货物" 不再二次拆字
+ */
+function _tokenizeQuery(rawQuery) {
+  if (typeof rawQuery !== 'string') return [];
+  const normalized = rawQuery.trim().toLowerCase();
+  if (!normalized) return [];
+  const tokens = normalized
+    .split(/[\s,，、;；]+/)
+    .map(t => t.trim())
+    .filter(t => t.length >= 2);
+  return Array.from(new Set(tokens));
+}
+
+/**
+ * 抽取 NPC 可搜索文本（仅 value，不含字段名）
+ * primary: name+title（命中加权 +2）
+ * body: 其余可搜字段（命中 +1）
+ */
+function _buildNpcSearchableText(npc) {
+  if (!npc || typeof npc !== 'object') return { primary: '', body: '' };
+  const partsPrimary = [];
+  const partsBody = [];
+  const pushPrimary = v => { if (typeof v === 'string' && v) partsPrimary.push(v); };
+  const pushBody = v => {
+    if (typeof v === 'string' && v) partsBody.push(v);
+    else if (Array.isArray(v)) v.forEach(item => { if (typeof item === 'string' && item) partsBody.push(item); });
+  };
+  pushPrimary(npc.name);
+  pushPrimary(npc.title);
+  pushBody(npc.role);
+  pushBody(npc.default_site);
+  pushBody(npc.location);
+  pushBody(npc.personality);
+  pushBody(npc.appearance);
+  pushBody(npc.current_goal);
+  pushBody(npc.cognitive_state);
+  pushBody(npc.default_cognitive_state);
+  pushBody(npc.routine);
+  pushBody(npc.common_spots);
+  pushBody(npc.faction);
+  pushBody(npc.origin);
+  pushBody(npc.clothing);
+  pushBody(npc.msg_reply_tone);
+  pushBody(npc.birthday);
+  return {
+    primary: partsPrimary.join(' ').toLowerCase(),
+    body: partsBody.join(' ').toLowerCase(),
+  };
+}
+
+/**
+ * 抽取 timeline event 可搜索文本
+ * primary: characters + location（核心标识，命中加权 +2）
+ * body: time/day/content/description（事件正文，命中 +1）
+ */
+function _buildEventSearchableText(event) {
+  if (!event || typeof event !== 'object') return { primary: '', body: '' };
+  const partsPrimary = [];
+  const partsBody = [];
+  const pushPrimary = v => {
+    if (typeof v === 'string' && v) partsPrimary.push(v);
+    else if (Array.isArray(v)) v.forEach(item => { if (typeof item === 'string' && item) partsPrimary.push(item); });
+  };
+  const pushBody = v => {
+    if (typeof v === 'string' && v) partsBody.push(v);
+  };
+  pushPrimary(event.characters);
+  pushPrimary(event.location);
+  pushBody(event.time);
+  pushBody(event.time_str);
+  pushBody(event.day);
+  pushBody(event.content);
+  pushBody(event.description);
+  return {
+    primary: partsPrimary.join(' ').toLowerCase(),
+    body: partsBody.join(' ').toLowerCase(),
+  };
+}
+
+/**
+ * OR 匹配 + 打分（任一 token 命中即累加）
+ * 每个 token 命中 primary +2，命中 body +1，多字段命中取最高
+ * 全部 token 都未命中时 total=0，调用方过滤 score>0
+ *
+ * 设计取舍：选 OR 而非 AND，因 LLM 习惯撒一把关键词探测
+ * （e.g. "铁匠 铁匠铺 维修 铁构件"），这些词常分散在多条 doc 里。
+ * AND 严格匹配会让 LLM 看不到任何相关信息；OR + 排序让命中
+ * 越多的条目越靠前，LLM 自己拼出答案。
+ */
+function _scoreMatch(tokens, primaryText, bodyText) {
+  if (!tokens || tokens.length === 0) return 0;
+  const primary = primaryText || '';
+  const body = bodyText || '';
+  let total = 0;
+  for (const tok of tokens) {
+    if (primary && primary.includes(tok)) total += 2;
+    else if (body && body.includes(tok)) total += 1;
+  }
+  return total;
+}
+
+/**
  * 刷新档案类工具的动态注册
  * 根据当前世界卡状态注册/更新 archive 工具到 toolRegistry
  * 应在每次 API 请求前调用
@@ -57,80 +160,113 @@ function refreshArchiveTools() {
     triggerHint: null,
     signal: null,
     description:
-      '跨所有数据源全局搜索——NPC档案、地点设定、时间线事件、规则模块、历史剧情原文。输入关键词，返回所有匹配的摘要。',
+      '跨所有数据源全局搜索——NPC档案、地点设定、时间线事件、规则模块、历史剧情原文。支持单关键词或多关键词（空格/逗号分隔），按命中数和字段权重排序，部分命中也会返回。',
     when_to_call:
       '不确定信息在哪里时；需要发现相关NPC、地点或事件时；开始新场景需要了解背景时。先 search_world 再用 get_npc_card/get_rule 精读。',
     avoid_when:
       '已经知道具体NPC ID或规则模块ID时，直接用 get_npc_card/get_rule 更高效。',
     input_focus:
-      'query 是搜索关键词，如人物名、地点名、事件描述。越具体越好。',
+      '关键词可以是 1-4 个，按空格或逗号分隔。多关键词不要求都命中，但命中越多排越前。建议把相关概念都列出（如"铁匠 维修 铁件"），系统会把含其中任意词的条目按相关度排好。避免传字段名（如"name"、"role"、"appearance"），那不是数据内容。',
     expected_output:
-      '按数据源分组的搜索结果摘要，标注来源类型（NPC/地点/时间线/规则/剧情/玩家行动）。如需精读某回合原文，用 get_raw_narrative。',
+      '按数据源分组的搜索结果摘要（每源最多 5 条，按相关度排序），标注来源类型（NPC/地点/时间线/规则/剧情/玩家行动）。结果可能只覆盖部分关键词——LLM 应自己拼出完整答案。如需精读某回合原文，用 get_raw_narrative。',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: '搜索关键词，如"失窃货物"、"铁匠"、"桥梁修缮"',
+          description: '搜索关键词。单词如"铁匠"、"失窃货物"、"桥梁修缮"；多词如"Owen 西段弯道 货车"——按命中数排序，部分命中也会返回。',
         },
       },
       required: ['query'],
     },
     execute(args) {
-      const query = (args.query || '').toLowerCase();
-      if (!query) return '[错误] 请提供搜索关键词';
+      // 类型防御：LLM 偶尔传 number/object 导致 .toLowerCase() 崩
+      const rawQuery = args && args.query;
+      const tokens = _tokenizeQuery(rawQuery);
+      if (tokens.length === 0) {
+        return '[错误] 请提供搜索关键词（每个词至少 2 个字符）';
+      }
 
       // 每次执行都读最新 entityStore（登场世界扩展后实时可搜）
       const entityIds = window.entityStore?.list?.() || [];
 
-      const results = [];
+      const TOP_K_PER_SOURCE = 5;
+      const sections = [];
+
+      const collectTopK = (scored, formatter) => {
+        if (scored.length === 0) return [];
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, TOP_K_PER_SOURCE).map(formatter);
+      };
 
       // 搜索 NPC 档案
       const npcStore = window.npcStore;
       if (npcStore) {
-        const allNpcs = npcStore.getAllMap();
+        // 防御方法不存在的情况 (压缩后报 _HEX[_HEX(...)] is not a function 那条 bug 就是这里)
+        const allNpcs = (typeof npcStore.getAllMap === 'function' ? npcStore.getAllMap() : null) || {};
+        const scored = [];
         for (const [npcId, npc] of Object.entries(allNpcs)) {
-          const searchText = JSON.stringify(npc).toLowerCase();
-          if (searchText.includes(query)) {
-            const name = npc.name || npcId;
-            const role = npc.role || npc.title || '';
-            const site = npc.default_site || npc.location || '';
-            results.push(`[NPC] ${name} (${npcId}) — ${role}${site ? '，常在' + site : ''}`);
-          }
+          const { primary, body } = _buildNpcSearchableText(npc);
+          const score = _scoreMatch(tokens, primary, body);
+          if (score > 0) scored.push({ npcId, npc, score });
         }
+        sections.push(...collectTopK(scored, ({ npcId, npc }) => {
+          const name = npc.name || npcId;
+          const role = npc.role || npc.title || '';
+          const site = npc.default_site || npc.location || '';
+          return `[NPC] ${name} (${npcId}) — ${role}${site ? '，常在' + site : ''}`;
+        }));
       }
 
-      // 搜索地点/世界实体
-      for (const entityId of entityIds) {
-        const fullText = arch.getWorldEntity(entityId);
-        if (fullText && fullText.toLowerCase().includes(query)) {
-          // 取前80字作为摘要
-          const snippet = fullText.replace(/\s+/g, ' ').trim().slice(0, 80);
-          results.push(`[地点] ${entityId} — ${snippet}…`);
+      // 搜索地点/世界实体（entityId 作 primary，全文作 body）
+      {
+        const scored = [];
+        for (const entityId of entityIds) {
+          if (typeof entityId !== 'string' || !entityId) continue;
+          const fullText = (typeof arch.getWorldEntity === 'function' ? arch.getWorldEntity(entityId) : '') || '';
+          if (typeof fullText !== 'string' || !fullText) continue;
+          const score = _scoreMatch(tokens, entityId.toLowerCase(), fullText.toLowerCase());
+          if (score > 0) scored.push({ entityId, fullText, score });
         }
+        sections.push(...collectTopK(scored, ({ entityId, fullText }) => {
+          const snippet = fullText.replace(/\s+/g, ' ').trim().slice(0, 80);
+          return `[地点] ${entityId} — ${snippet}…`;
+        }));
       }
 
       // 搜索时间线事件
-      const timelineEvents = arch._getTimelineEvents?.() || [];
-      for (const event of timelineEvents) {
-        const eventText = JSON.stringify(event).toLowerCase();
-        if (eventText.includes(query)) {
+      {
+        const timelineEvents = arch._getTimelineEvents?.() || [];
+        const scored = [];
+        for (const event of timelineEvents) {
+          const { primary, body } = _buildEventSearchableText(event);
+          const score = _scoreMatch(tokens, primary, body);
+          if (score > 0) scored.push({ event, score });
+        }
+        sections.push(...collectTopK(scored, ({ event }) => {
           const time = event.time || event.time_str || '';
           const content = (event.content || event.description || '').slice(0, 60);
           const rawChars = event.characters;
           const chars = (Array.isArray(rawChars) ? rawChars : typeof rawChars === 'string' ? rawChars.split(/[、,，]/) : []).join('、');
-          results.push(`[时间线] ${time} — ${content}${chars ? '（相关人物：' + chars + '）' : ''}`);
-        }
+          return `[时间线] ${time} — ${content}${chars ? '（相关人物：' + chars + '）' : ''}`;
+        }));
       }
 
-      // 搜索规则模块
-      const moduleIds = window.worldMeta?.listRuleModules?.() || [];
-      for (const moduleId of moduleIds) {
-        const moduleText = arch.getPromptModuleDirect?.(moduleId) || '';
-        if (moduleText.toLowerCase().includes(query)) {
-          const snippet = moduleText.replace(/\s+/g, ' ').trim().slice(0, 60);
-          results.push(`[规则] ${moduleId} — ${snippet}…`);
+      // 搜索规则模块（moduleId 作 primary）
+      {
+        const moduleIds = window.worldMeta?.listRuleModules?.() || [];
+        const scored = [];
+        for (const moduleId of moduleIds) {
+          if (typeof moduleId !== 'string' || !moduleId) continue;
+          const moduleText = arch.getPromptModuleDirect?.(moduleId) || '';
+          if (typeof moduleText !== 'string' || !moduleText) continue;
+          const score = _scoreMatch(tokens, moduleId.toLowerCase(), moduleText.toLowerCase());
+          if (score > 0) scored.push({ moduleId, moduleText, score });
         }
+        sections.push(...collectTopK(scored, ({ moduleId, moduleText }) => {
+          const snippet = moduleText.replace(/\s+/g, ' ').trim().slice(0, 60);
+          return `[规则] ${moduleId} — ${snippet}…`;
+        }));
       }
 
       // 搜索传闻（时间线候选事件）
@@ -140,12 +276,15 @@ function refreshArchiveTools() {
           const ts = typeof timelineService !== 'undefined' ? timelineService : null;
           const currentTime = ts?.getCurrentDate?.() || null;
           const candidates = gm._getTimelineCandidates?.(currentTime, null) || [];
+          const scored = [];
           for (const c of candidates) {
+            if (!c || !c.event) continue;
             const clueText = gm._buildClueText?.(c.event) || '';
-            if (clueText.toLowerCase().includes(query)) {
-              results.push(`[传闻] ${clueText.slice(0, 80)}`);
-            }
+            if (typeof clueText !== 'string' || !clueText) continue;
+            const score = _scoreMatch(tokens, null, clueText.toLowerCase());
+            if (score > 0) scored.push({ clueText, score });
           }
+          sections.push(...collectTopK(scored, ({ clueText }) => `[传闻] ${clueText.slice(0, 80)}`));
         } catch (e) {
           // 传闻搜索失败不影响其他结果
         }
@@ -154,33 +293,22 @@ function refreshArchiveTools() {
       // 搜索历史剧情原文（chatHistory）
       if (typeof chatHistory !== 'undefined' && Array.isArray(chatHistory)) {
         const _parseTurn = typeof parseTurnFromUID === 'function' ? parseTurnFromUID : null;
+        const scored = [];
 
         for (let i = 0; i < chatHistory.length; i++) {
           const msg = chatHistory[i];
-          if (!msg || !msg.text) continue;
+          if (!msg || !msg.text || typeof msg.text !== 'string') continue;
           if (msg.isError || msg.isCancelled) continue;
 
           const lowerText = msg.text.toLowerCase();
-          if (!lowerText.includes(query)) continue;
+          const score = _scoreMatch(tokens, null, lowerText);
+          if (score === 0) continue;
 
-          if (msg.sender === 'ai') {
-            // AI 消息：从 uid 提取回合号
-            if (!msg.uid || !_parseTurn) continue;
-            const turnNum = _parseTurn(msg.uid);
-            if (turnNum === null || turnNum === 0) continue;
-
-            const matchIdx = lowerText.indexOf(query);
-            const start = Math.max(0, matchIdx - 30);
-            const end = Math.min(msg.text.length, matchIdx + query.length + 50);
-            let snippet = msg.text.slice(start, end).replace(/\s+/g, ' ');
-            if (start > 0) snippet = '…' + snippet;
-            if (end < msg.text.length) snippet = snippet + '…';
-            results.push(`[剧情] T${turnNum}: ${snippet}`);
-
-          } else if (msg.sender === 'user') {
-            // User 消息：往后找最近的 AI 消息确定回合号
-            if (!_parseTurn) continue;
-            let turnNum = null;
+          // 回合号反推：AI 消息从 uid 提取；user 消息往后找最近 AI 消息
+          let turnNum = null;
+          if (msg.sender === 'ai' && msg.uid && _parseTurn) {
+            turnNum = _parseTurn(msg.uid);
+          } else if (msg.sender === 'user' && _parseTurn) {
             for (let j = i + 1; j < chatHistory.length; j++) {
               const next = chatHistory[j];
               if (next && next.sender === 'ai' && next.uid) {
@@ -188,29 +316,51 @@ function refreshArchiveTools() {
                 break;
               }
             }
-            if (turnNum === null || turnNum === 0) continue;
-
-            const matchIdx = lowerText.indexOf(query);
-            const start = Math.max(0, matchIdx - 30);
-            const end = Math.min(msg.text.length, matchIdx + query.length + 50);
-            let snippet = msg.text.slice(start, end).replace(/\s+/g, ' ');
-            if (start > 0) snippet = '…' + snippet;
-            if (end < msg.text.length) snippet = snippet + '…';
-            results.push(
-              window.promptRegistry
-                .get('react.format.archiveSearchResult')
-                .builder({ turnNum, snippet })
-            );
           }
+          if (turnNum === null || turnNum === 0) continue;
+
+          // snippet 锚点：用第一个命中 token 的位置
+          let anchorIdx = -1;
+          for (const tok of tokens) {
+            const idx = lowerText.indexOf(tok);
+            if (idx >= 0) { anchorIdx = idx; break; }
+          }
+          if (anchorIdx < 0) anchorIdx = 0;
+          const start = Math.max(0, anchorIdx - 30);
+          const end = Math.min(msg.text.length, anchorIdx + 80);
+          let snippet = msg.text.slice(start, end).replace(/\s+/g, ' ');
+          if (start > 0) snippet = '…' + snippet;
+          if (end < msg.text.length) snippet = snippet + '…';
+
+          scored.push({ msg, turnNum, snippet, score });
+        }
+
+        const chatLines = collectTopK(scored, ({ msg, turnNum, snippet }) => {
+          if (msg.sender === 'ai') {
+            return `[剧情] T${turnNum}: ${snippet}`;
+          }
+          // user 消息走 promptRegistry 模板（回退到默认格式）
+          const builder = window.promptRegistry?.get?.('react.format.archiveSearchResult')?.builder;
+          if (typeof builder === 'function') {
+            return builder({ turnNum, snippet });
+          }
+          return `[玩家行动] T${turnNum}: ${snippet}`;
+        });
+        sections.push(...chatLines);
+        if (chatLines.length > 0) {
+          sections.push(
+            '（以上 [剧情]/[玩家行动] 为约 80 字摘要片段——需还原对话原文、精确语气、细节描写时，' +
+            '用 get_raw_narrative({turn_number: N}) 看 N 回合完整原文）'
+          );
         }
       }
 
-      if (results.length === 0) {
-        return `[无结果] 未找到与 "${args.query}" 相关的内容`;
+      if (sections.length === 0) {
+        return `[无结果] 未找到与 "${rawQuery}" 相关的内容`;
       }
 
-      console.log(`[search_world] "${args.query}": ${results.length} 条结果`);
-      return results.join('\n');
+      console.log(`[search_world] tokens=${JSON.stringify(tokens)}: ${sections.length} 条结果`);
+      return sections.join('\n');
     },
     source: 'archive',
   });

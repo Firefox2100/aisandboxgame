@@ -40,7 +40,7 @@ class _DesignServiceP1Mixin {
     if (externalAbortSignal) {
       externalAbortHandler = () => {
         try {
-          requestAbortController.abort();
+          requestAbortController.abort(new Error('Phase 1 cancelled'));
         } catch (_e) {
           /* ignore */
         }

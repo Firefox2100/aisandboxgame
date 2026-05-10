@@ -247,8 +247,8 @@ const npcPanelUI = {
                     <span class="pending-new">${this.escapeAttr(newVal)}</span>
                 </div>
                 <div class="pending-field-actions">
-                    <button class="btn-ghost btn-icon btn-sm" data-action="approve-pending-field" data-npc-id="${safeId}" data-field="${safeField}" title="接受此项">✓</button>
-                    <button class="btn-danger btn-icon btn-sm" data-action="reject-pending-field" data-npc-id="${safeId}" data-field="${safeField}" title="拒绝此项">✕</button>
+                    <button class="btn-ghost btn-icon btn-sm" data-action="approve-pending-field" data-npc-id="${safeId}" data-field="${safeField}" title="接受此项"><span class="material-symbols-outlined">check</span></button>
+                    <button class="btn-danger btn-icon btn-sm" data-action="reject-pending-field" data-npc-id="${safeId}" data-field="${safeField}" title="拒绝此项"><span class="material-symbols-outlined">close</span></button>
                 </div>
             </div>`;
     }

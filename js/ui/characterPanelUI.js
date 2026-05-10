@@ -55,7 +55,7 @@
   function renderActiveCard(item, copy, pendingForName) {
     // 常态化显示——任何 count 值都直接渲染，包括 1 / 0.1 / -1 / 壹 / "1/2" 等
     const rawCount = item.count == null ? '' : String(item.count);
-    const countHtml = `<span class="character-inv-count">×${escapeHtml(rawCount)}</span>`;
+    const countHtml = `<span class="character-inv-count">×${escapeHtml(rawCount)}</span>`; /* ui-lint-allow: 物品计数乘号 */
 
     const desc = item.desc || '';
     const expanded = _expandedNames.has(item.name);
@@ -108,7 +108,7 @@
     return `
       <li class="inventory-tombstone-row" title="${escapeHtml(item.desc || '')}">
         <span class="inventory-tombstone-name">${escapeHtml(item.name)}</span>
-        <span class="inventory-tombstone-count">×0</span>
+        <span class="inventory-tombstone-count">×0</span><!-- ui-lint-allow: 物品计数乘号 -->
       </li>`;
   }
 

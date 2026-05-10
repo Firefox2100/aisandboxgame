@@ -9,6 +9,19 @@ function _isValidFunctionName(name) {
   return FN_NAME_REGEX.test(name);
 }
 
+// 启发式：粘贴到 cp-model 的内容像不像 API Key
+// 命中即弹 toast 提示用户填错字段（不阻止粘贴）
+function _pastedLooksLikeApiKey(text) {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (/\s/.test(t)) return true;
+  if (/^sk-[A-Za-z0-9_-]{10,}/i.test(t)) return true; // OpenAI / DeepSeek / Anthropic
+  if (/^AIza[A-Za-z0-9_-]{20,}/.test(t)) return true; // Google
+  if (/^xai-[A-Za-z0-9_-]{10,}/i.test(t)) return true; // xAI
+  if (t.length > 100) return true;
+  return false;
+}
+
 function _getDefaultPromptModule(moduleId) {
   const meta = typeof window !== 'undefined' ? window.worldMeta : null;
   if (!meta) return '';
@@ -435,6 +448,10 @@ const SETTINGS_LOCALE_COPY = {
         label: '叙事着色',
         hint: '为对话、心理活动、说话人等文字显示不同颜色',
       },
+      clickToSend: {
+        label: '点击选项即发送',
+        hint: '关闭时，点击选项会先填入输入栏，需要手动发送',
+      },
       streamingLabel: '流式输出',
       helpButtonTitle: '推荐模型',
       editPrice: '编辑价格',
@@ -445,7 +462,7 @@ const SETTINGS_LOCALE_COPY = {
       thinkingHint: 'DeepSeek 的部分工具调用可能不会回传思考文本',
       thinkingHelp:
         '当思考档位为 High 或 Max 时，DeepSeek 请求会路由到推理后端。但推理后端不接受"强制调用特定工具"的请求，因此游戏中需要必调工具的若干步骤（叙事生成、面板更新、选项生成等）会自动关闭这些请求的思考——以保证工具一定被调用，代价是这些请求看不到思考文本。<span class="module-thinking-help-emphasis">大部分的思考不受影响，可正常使用，思考会正常开启并生效。</span><a href="https://api-docs.deepseek.com/guides/function_calling" target="_blank" rel="noopener noreferrer">详见 DeepSeek API 文档</a>',
-      apiKeysFoldTitle: '官方服务商（Gemini / OpenAI / Grok / Anthropic 等）',
+      apiKeysFoldTitle: '官方服务商（Gemini / OpenAI / Grok / Anthropic）',
       apiKeysFoldNote: '只支持官方 API，需科学上网',
       simple: {
         gameLabel: '标准设置',
@@ -495,12 +512,22 @@ const SETTINGS_LOCALE_COPY = {
         providerNameLabel: '名称',
         providerNamePlaceholder: '服务商名称',
         modelLabel: '模型',
-        modelPlaceholder: '默认模型名称',
+        modelPlaceholder: '例如 gpt-5.4 / claude-sonnet-4-6 / deepseek-v4-flash',
         deleteButtonTitle: '删除',
         fetchModels: '获取模型',
         noModelsFound: '该服务商未返回可用模型',
         fetchModelsFailed: '获取模型列表失败',
+        // 共用 toast 前缀（按 HTTP status 分类，"测试连接"和"获取模型"两个按钮共享）
+        apiErrorAuth: 'API Key 无效',                        // 401 / 403
+        apiErrorBalance: '账户余额不足',                       // 402
+        apiErrorNotFound: '找不到（请检查 URL 路径与模型名）', // 404
+        apiErrorNetwork: '无法连接，请检查 URL 与网络',         // fetch TypeError
         fillUrlAndKeyFirst: '请先填写 URL 和 API Key',
+        invalidModelHasSpace: '模型 ID 不能包含空格，请检查是否填错了字段',
+        invalidModelLooksLikeLabel: value =>
+          `"${value}" 看起来是字段标签而不是模型 ID，请填写实际的模型名（如 gpt-5.4 / claude-sonnet-4-6）`,
+        invalidModelTooLong: '模型 ID 过长（超过 100 字符），可能是粘贴了 API Key',
+        pastedLooksLikeApiKey: '粘贴的内容看起来像 API Key，是否填错了字段？',
         pasteTitle: '粘贴',
         pasteFailed: '无法访问剪贴板',
         pasteFallback: '请长按输入框粘贴',
@@ -511,6 +538,17 @@ const SETTINGS_LOCALE_COPY = {
         maxOutputTokensLabel: 'Max Output Tokens',
         maxOutputTokensPlaceholder: '例如 8192',
         advancedSectionLabel: '高级',
+        statusBadgePass: '测试通过',
+        statusBadgeFail: '测试失败',
+        statusBadgeUntested: '未测试 — 建议先点"测试"按钮验证 URL / Key / 模型名',
+        unverifiedSaveTitle: '有服务商还没通过测试',
+        unverifiedSaveBody: names => {
+          const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const list = names.map(n => `「${esc(n)}」`).join('、');
+          return `以下自定义服务商还没点过"测试"按钮验证：<br><strong>${list}</strong><br><br>如果 URL / Key / 模型名 有任何一项错了，开局后第一个回合就会报错。建议先回去点一下"测试"。`;
+        },
+        unverifiedSaveConfirm: '仍然保存',
+        unverifiedSaveCancel: '回去测试',
       },
       feedback: {
         entryEyebrow: 'BUG FEEDBACK',
@@ -742,6 +780,10 @@ const SETTINGS_LOCALE_COPY = {
         label: 'Narrative Coloring',
         hint: 'Highlight dialogue, thoughts, and speakers in different colors',
       },
+      clickToSend: {
+        label: 'Click to Send',
+        hint: 'When off, clicking a choice fills the input box for manual sending',
+      },
       streamingLabel: 'Streaming',
       helpButtonTitle: 'Recommended Models',
       editPrice: 'Edit Price',
@@ -752,7 +794,7 @@ const SETTINGS_LOCALE_COPY = {
       thinkingHint: 'Some DeepSeek tool calls will not return thinking text.',
       thinkingHelp:
         'When Thinking is set to High or Max, DeepSeek requests are routed to the reasoner backend. The reasoner refuses requests that pin the model to a specific tool, so the game silently disables thinking on those steps (narrative generation, panel updates, choice generation) — the tool call is guaranteed to fire, but those requests no longer return thinking text. <span class="module-thinking-help-emphasis">Most requests are unaffected — Thinking still activates normally for the rest.</span> <a href="https://api-docs.deepseek.com/guides/function_calling" target="_blank" rel="noopener noreferrer">See the DeepSeek API docs</a>.',
-      apiKeysFoldTitle: 'Official Providers (Gemini / OpenAI / Grok / Anthropic, etc.)',
+      apiKeysFoldTitle: 'Official Providers (Gemini / OpenAI / Grok / Anthropic)',
       apiKeysFoldNote: 'Official APIs only',
       simple: {
         gameLabel: 'Standard Settings',
@@ -802,12 +844,22 @@ const SETTINGS_LOCALE_COPY = {
         providerNameLabel: 'Name',
         providerNamePlaceholder: 'Provider Name',
         modelLabel: 'Model',
-        modelPlaceholder: 'Default Model',
+        modelPlaceholder: 'e.g. gpt-5.4 / claude-sonnet-4-6 / deepseek-v4-flash',
         deleteButtonTitle: 'Delete',
         fetchModels: 'Models',
         noModelsFound: 'No models available from this provider',
         fetchModelsFailed: 'Failed to fetch models',
+        // Shared toast prefixes (categorized by HTTP status, used by both "Test" and "Models" buttons)
+        apiErrorAuth: 'Invalid API Key',                              // 401 / 403
+        apiErrorBalance: 'Insufficient balance',                       // 402
+        apiErrorNotFound: 'Not found (check URL path and model name)',// 404
+        apiErrorNetwork: 'Cannot reach endpoint — check URL and network', // fetch TypeError
         fillUrlAndKeyFirst: 'Please fill in the URL and API Key first',
+        invalidModelHasSpace: 'Model ID cannot contain spaces — looks like the wrong field',
+        invalidModelLooksLikeLabel: value =>
+          `"${value}" looks like a field label, not a model ID. Please enter the real model name (e.g. gpt-5.4 / claude-sonnet-4-6).`,
+        invalidModelTooLong: 'Model ID is too long (>100 chars) — likely pasted an API Key',
+        pastedLooksLikeApiKey: 'The pasted content looks like an API Key — wrong field?',
         pasteTitle: 'Paste',
         pasteFailed: 'Clipboard access denied',
         pasteFallback: 'Please long-press the input to paste',
@@ -818,6 +870,17 @@ const SETTINGS_LOCALE_COPY = {
         maxOutputTokensLabel: 'Max Output Tokens',
         maxOutputTokensPlaceholder: 'e.g. 8192',
         advancedSectionLabel: 'Advanced',
+        statusBadgePass: 'Test passed',
+        statusBadgeFail: 'Test failed',
+        statusBadgeUntested: 'Not tested — click "Test" to verify URL / Key / model',
+        unverifiedSaveTitle: 'Provider(s) not tested',
+        unverifiedSaveBody: names => {
+          const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const list = names.map(n => `"${esc(n)}"`).join(', ');
+          return `These custom provider(s) haven't passed the "Test" check yet: <strong>${list}</strong><br><br>If the URL / Key / model name is wrong on any of them, the first turn will fail. Recommend going back and clicking "Test".`;
+        },
+        unverifiedSaveConfirm: 'Save anyway',
+        unverifiedSaveCancel: 'Go back & test',
       },
       feedback: {
         entryEyebrow: 'BUG FEEDBACK',
@@ -1281,6 +1344,8 @@ function _applySettingsStaticCopy() {
     'general.defaultContentFont.hint': copy.general.defaultContentFont.hint,
     'general.narrativeColorize.label': copy.general.narrativeColorize.label,
     'general.narrativeColorize.hint': copy.general.narrativeColorize.hint,
+    'general.clickToSend.label': copy.general.clickToSend.label,
+    'general.clickToSend.hint': copy.general.clickToSend.hint,
     'general.thinkingHint': copy.general.thinkingHint,
     'general.thinkingHelp': copy.general.thinkingHelp,
     'general.feedback.entryEyebrow': copy.general.feedback.entryEyebrow,
@@ -1458,15 +1523,13 @@ const PROVIDERS = [
   'anthropic',
   'deepseek',
   'siliconflow',
-  'openrouter',
 ];
-const FOLDED_OFFICIAL_PROVIDERS = ['gemini', 'openai', 'grok', 'anthropic', 'siliconflow', 'openrouter'];
+const FOLDED_OFFICIAL_PROVIDERS = ['gemini', 'openai', 'grok', 'anthropic'];
 const VISIBLE_PROVIDERS = PROVIDERS.filter(id => !FOLDED_OFFICIAL_PROVIDERS.includes(id));
 
 const SETTINGS_PROVIDER_OFFICIAL_URLS = {
   deepseek: 'https://platform.deepseek.com',
   siliconflow: 'https://www.siliconflow.cn/',
-  openrouter: 'https://openrouter.ai',
 };
 
 // 每个服务商的推荐模型(当切换服务商时自动填充)
@@ -1477,7 +1540,6 @@ const DEFAULT_MODELS = {
   grok: 'grok-4-1-fast-reasoning',
   anthropic: 'claude-sonnet-4-6',
   siliconflow: 'deepseek-ai/DeepSeek-R1',
-  openrouter: 'deepseek/deepseek-r1',
 };
 
 const CUSTOM_MODEL_OPTION_VALUE = '__custom__';
@@ -1488,7 +1550,6 @@ const BUILTIN_PROVIDER_MODEL_OPTIONS = {
   grok: ['grok-4-1-fast-reasoning'],
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6'],
   siliconflow: ['deepseek-ai/DeepSeek-R1'],
-  openrouter: ['deepseek/deepseek-r1'],
 };
 
 // DeepSeek V4 hybrid 思考档位常量在 aiService.js 顶层声明，settingsUI.js 直接复用。
@@ -1522,6 +1583,11 @@ let settingsDraftUiLanguage = null;
 let settingsDraftUiScaleMode = null;
 let settingsDraftUiScale = null;
 let settingsDraftCustomProviders = null;
+// 内存里记录每个 cp.id 的最近一次"实测"结果。
+// 重渲染（如 +添加服务商 / 删除其他服务商）会重建所有 row DOM，dataset.testResult 会丢失；
+// 这个 Map 让 _renderCustomProviderRow 在恢复时把状态还原回来。
+// 不持久化到 config——浏览器刷新后清空，已保存的 cp 重新走"字段全填即视作 pass"的预设逻辑。
+const _cpTestResultMemory = new Map();
 let settingsDraftProviderApiKeys = null;
 let settingsInitialThemeMode = null;
 let settingsInitialThemeSkin = null;
@@ -1604,6 +1670,9 @@ function _clearSettingsDraftSession() {
   settingsDraftUiScale = null;
   settingsDraftCustomProviders = null;
   settingsDraftProviderApiKeys = null;
+  // 关掉 settings 后清空内存里的"测试结果"——下次打开时所有 cp 重新走"字段全填即默认 pass"逻辑，
+  // 避免上次会话里的 'untested' / 'fail' 残留导致 badge 跟实际配置对不上
+  _cpTestResultMemory.clear();
   settingsInitialThemeMode = null;
   settingsInitialThemeSkin = null;
   settingsInitialUiLanguage = null;
@@ -2611,12 +2680,22 @@ function _captureDraftCustomProvidersFromUI() {
     if (!id || !name) return;
     const protocol =
       row.querySelector('.cp-protocol')?.value === 'anthropic' ? 'anthropic' : 'openai';
+    // maxOutputTokens 字段也要捕获，否则点"+添加服务商"等触发 capture 的操作会让该字段被默认值覆盖
+    const maxOutputTokensEnabled = !!row.querySelector('.cp-maxtokens-enabled')?.checked;
+    const rawMaxOutputTokens = row.querySelector('.cp-maxtokens-value')?.value?.trim();
+    const parsedMaxOutputTokens = parseInt(rawMaxOutputTokens, 10);
+    const maxOutputTokens =
+      Number.isFinite(parsedMaxOutputTokens) && parsedMaxOutputTokens > 0
+        ? parsedMaxOutputTokens
+        : null;
     next.push({
       id,
       name,
       baseUrl: row.querySelector('.cp-baseurl')?.value?.trim() || '',
       defaultModel: row.querySelector('.cp-model')?.value?.trim() || '',
       protocol,
+      maxOutputTokensEnabled,
+      maxOutputTokens,
     });
   });
   settingsDraftCustomProviders = next;
@@ -3135,7 +3214,6 @@ function _getProviderDisplayName(id) {
     grok: isEnglish ? 'Official Grok' : '【官方】Grok',
     anthropic: isEnglish ? 'Official Anthropic' : '【官方】Anthropic',
     siliconflow: 'SiliconFlow',
-    openrouter: 'OpenRouter',
   };
   if (builtinNames[id]) return builtinNames[id];
   const cp = _getCustomProviderByIdForSettings(id);
@@ -3525,22 +3603,29 @@ function _bindApiKeyMaskEvents(input) {
  * 粘贴剪贴板内容到输入框（支持多种回退策略）
  * @param {HTMLInputElement} input - 目标输入框
  * @param {HTMLElement} btn - 粘贴按钮元素（用于视觉反馈）
+ * @param {Object} [options]
+ * @param {boolean} [options.raw=false] - true 时不做 API Key sanitize/遮罩，直接写入明文（用于 URL 等普通字段）
  */
-async function _pasteIntoInput(input, btn) {
+async function _pasteIntoInput(input, btn, options = {}) {
   const copy = _getSettingsCopy();
+  const raw = options.raw === true;
 
   /**
    * 成功粘贴后的视觉反馈
    */
   function onSuccess(text) {
-    const rawTrimmed = text.trim();
-    const sanitized = window.apiKeySanitizer
-      ? window.apiKeySanitizer.sanitize(rawTrimmed)
-      : rawTrimmed;
-    input.dataset.realValue = sanitized;
-    // 粘贴后立即显示部分遮罩
-    input.type = 'text';
-    input.value = _maskApiKey(sanitized);
+    const trimmed = text.trim();
+    if (raw) {
+      input.value = trimmed;
+    } else {
+      const sanitized = window.apiKeySanitizer
+        ? window.apiKeySanitizer.sanitize(trimmed)
+        : trimmed;
+      input.dataset.realValue = sanitized;
+      input.type = 'text';
+      input.value = _maskApiKey(sanitized);
+      _maybeNotifyApiKeySanitized(trimmed, sanitized);
+    }
     btn.classList.add('api-key-paste-btn--success');
     const icon = btn.querySelector('.material-symbols-outlined');
     if (icon) icon.textContent = 'check';
@@ -3549,7 +3634,6 @@ async function _pasteIntoInput(input, btn) {
       if (icon) icon.textContent = 'content_paste';
     }, 1500);
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    _maybeNotifyApiKeySanitized(rawTrimmed, sanitized);
   }
 
   // Strategy 1: Clipboard API (works on HTTPS / localhost)
@@ -3717,7 +3801,6 @@ function _renderApiKeyRows() {
     grok: 'xai-...',
     anthropic: 'sk-ant-...',
     siliconflow: 'sk-...',
-    openrouter: 'sk-or-v1-...',
   };
   // 每个内置 provider 测试用的默认模型
   const testModels = {
@@ -3727,7 +3810,6 @@ function _renderApiKeyRows() {
     grok: 'grok-4-1-fast-reasoning',
     anthropic: 'claude-sonnet-4-6',
     siliconflow: 'deepseek-ai/DeepSeek-R1',
-    openrouter: 'deepseek/deepseek-r1',
   };
 
   const copy = _getSettingsCopy();
@@ -3774,33 +3856,58 @@ async function _runApiTest(btn, providerId, apiKey, model, baseUrl, protocol = '
   const copy = _getSettingsCopy();
   if (btn.classList.contains('testing')) return;
   btn.classList.remove('success', 'error');
+  // 重新测试 = 旧结果失效；保存时的"未测试"判定读 dataset.testResult，不依赖会被 5s setTimeout 清掉的 class
+  delete btn.dataset.testResult;
   btn.classList.add('testing');
   btn.textContent = '';
   btn.disabled = true;
+
+  // 按 HTTP status 选 toast 前缀；无匹配 / 无 status 时返回 null（让调用处用原 message 当 toast）
+  const _pickApiErrorPrefix = status => {
+    if (status === 401 || status === 403) return copy.general.provider.apiErrorAuth;
+    if (status === 402) return copy.general.provider.apiErrorBalance;
+    if (status === 404) return copy.general.provider.apiErrorNotFound;
+    return null;
+  };
 
   try {
     const result = await aiService.testApiConnection(providerId, apiKey, model, baseUrl, protocol);
     btn.classList.remove('testing');
     if (result.ok) {
       btn.classList.add('success');
+      btn.dataset.testResult = 'pass';
       btn.textContent = `${result.latency}ms`;
       btn.title = result.message;
     } else {
       btn.classList.add('error');
+      btn.dataset.testResult = 'fail';
       btn.textContent = copy.general.provider.failed;
+      // 网络层失败 → 精简文案；HTTP 层失败 → 按 status 加可读前缀（鉴权/余额/找不到）+ 服务商原话
+      let toastMsg;
+      if (result.code === 'network') {
+        toastMsg = copy.general.provider.apiErrorNetwork;
+      } else {
+        const prefix = _pickApiErrorPrefix(result.status);
+        toastMsg = prefix && result.message ? `${prefix}: ${result.message}` : (prefix || result.message);
+      }
       btn.title = result.message;
-      showToast(result.message);
+      showToast(toastMsg);
     }
   } catch (e) {
     btn.classList.remove('testing');
     btn.classList.add('error');
+    btn.dataset.testResult = 'fail';
     btn.textContent = copy.general.provider.failed;
     const errMsg = e.message || copy.general.provider.unknownError;
     btn.title = errMsg;
-    showToast(errMsg);
+    // testApiConnection 内部已 try/catch，外层 catch 几乎只在 fetch 抛 TypeError 才到——按 network 处理
+    const toastMsg = e.name === 'TypeError'
+      ? copy.general.provider.apiErrorNetwork
+      : errMsg;
+    showToast(toastMsg);
   } finally {
     btn.disabled = false;
-    // 5 秒后恢复默认状态
+    // 5 秒后恢复默认外观（dataset.testResult 保留，不清 — 它是保存时校验的依据）
     setTimeout(() => {
       btn.classList.remove('success', 'error');
       btn.textContent = btn.dataset.defaultText || copy.general.provider.testShort;
@@ -3847,16 +3954,17 @@ function _renderCustomProviderManager() {
             <div class="cp-field cp-field-name">
                 <span class="cp-label">${copy.general.provider.providerNameLabel}</span>
                 <input type="text" class="cp-name" value="${esc(cp.name)}" placeholder="${copy.general.provider.providerNamePlaceholder}">
+                <span class="cp-status-badge" data-status="untested" title="${copy.general.provider.statusBadgeUntested}"><span class="material-symbols-outlined">warning</span></span>
                 <button class="btn-danger btn-icon" data-action="cp-delete-btn" title="${copy.general.provider.deleteButtonTitle}" type="button"><span class="material-symbols-outlined">delete</span></button>
             </div>
             <div class="cp-field cp-field-baseurl">
                 <span class="cp-label">URL</span>
-                <input type="text" class="cp-baseurl" value="${esc(cp.baseUrl)}" placeholder="${baseUrlPlaceholder}">
-            </div>
-            <div class="cp-field cp-field-model">
-                <span class="cp-label">${copy.general.provider.modelLabel}</span>
-                <input type="text" class="cp-model" value="${esc(cp.defaultModel)}" placeholder="${copy.general.provider.modelPlaceholder}">
-                <button class="" data-action="cp-fetch-models-btn" title="${copy.general.provider.fetchModels}" type="button"><span class="material-symbols-outlined">expand_more</span></button>
+                <div class="api-key-input-wrapper">
+                  <input type="text" class="cp-baseurl" value="${esc(cp.baseUrl)}" placeholder="${baseUrlPlaceholder}">
+                  <button class="" data-action="api-key-paste-btn" type="button" title="${copy.general.provider.pasteTitle || 'Paste'}">
+                    <span class="material-symbols-outlined">content_paste</span>
+                  </button>
+                </div>
             </div>
             <div class="cp-field cp-field-key">
                 <span class="cp-label">Key</span>
@@ -3867,6 +3975,11 @@ function _renderCustomProviderManager() {
                   </button>
                 </div>
                 <button class="btn-secondary" data-action="api-test-btn" data-provider="${cp.id}" data-default-text="${copy.general.provider.test}" data-default-title="${copy.general.provider.testConnectionTitle}" title="${copy.general.provider.testConnectionTitle}">${copy.general.provider.test}</button>
+            </div>
+            <div class="cp-field cp-field-model">
+                <span class="cp-label">${copy.general.provider.modelLabel}</span>
+                <input type="text" class="cp-model" value="${esc(cp.defaultModel)}" placeholder="${copy.general.provider.modelPlaceholder}">
+                <button class="" data-action="cp-fetch-models-btn" title="${copy.general.provider.fetchModels}" type="button"><span class="material-symbols-outlined">expand_more</span></button>
             </div>
             <div class="cp-advanced-divider" aria-hidden="true">
                 <span class="cp-advanced-divider-label">${copy.general.provider.advancedSectionLabel}</span>
@@ -3910,13 +4023,21 @@ function _renderCustomProviderManager() {
           const nextApiKeys = { ...(_getCurrentProviderApiKeysForSettings() || {}) };
           delete nextApiKeys[cp.id];
           settingsDraftProviderApiKeys = nextApiKeys;
+          _cpTestResultMemory.delete(cp.id);
           _refreshAllProviderUI({ captureFromUI: false });
           showToast(copy.general.provider.deletedProvider(cp.name));
         }
       );
     });
-    // 粘贴按键事件
-    const cpPasteBtn = row.querySelector('[data-action~="api-key-paste-btn"]');
+    // 粘贴按键事件（URL + Key 两个字段）
+    const cpUrlPasteBtn = row.querySelector('.cp-field-baseurl [data-action~="api-key-paste-btn"]');
+    const cpBaseUrlInput = row.querySelector('.cp-baseurl');
+    if (cpUrlPasteBtn && cpBaseUrlInput) {
+      cpUrlPasteBtn.addEventListener('click', () => {
+        _pasteIntoInput(cpBaseUrlInput, cpUrlPasteBtn, { raw: true });
+      });
+    }
+    const cpPasteBtn = row.querySelector('.cp-field-key [data-action~="api-key-paste-btn"]');
     const cpApiKeyInput = row.querySelector('.cp-apikey');
     if (cpPasteBtn && cpApiKeyInput) {
       cpPasteBtn.addEventListener('click', () => {
@@ -3939,6 +4060,55 @@ function _renderCustomProviderManager() {
     protocolSelect.addEventListener('change', applyProtocolUI);
     applyProtocolUI();
 
+    // 状态徽章：与 testBtn.dataset.testResult 联动，但徽章状态独立可读
+    const _setRowBadge = status => {
+      const badge = row.querySelector('.cp-status-badge');
+      if (!badge) return;
+      const iconEl = badge.querySelector('.material-symbols-outlined');
+      const iconMap = { pass: 'check_circle', fail: 'error', untested: 'warning' };
+      const titleMap = {
+        pass: copy.general.provider.statusBadgePass,
+        fail: copy.general.provider.statusBadgeFail,
+        untested: copy.general.provider.statusBadgeUntested,
+      };
+      badge.dataset.status = status;
+      badge.title = titleMap[status] || '';
+      if (iconEl) iconEl.textContent = iconMap[status] || 'help';
+    };
+
+    // URL / Key / Model / 协议 改动 → 旧的"测试通过"标记失效（避免改完 key 后保存仍被认为已验证）
+    // 注：写入 'untested' 而不是 delete——这样下次重渲染（如 +添加 / 删别行）能记住"玩家改过没测"，
+    // 不会因为字段全填就被无脑预设成 pass。
+    const _invalidateRowTestResult = () => {
+      const tBtn = row.querySelector('[data-action~="api-test-btn"]');
+      if (tBtn) delete tBtn.dataset.testResult;
+      _cpTestResultMemory.set(cp.id, 'untested');
+      _setRowBadge('untested');
+    };
+    cpBaseUrlInput?.addEventListener('input', _invalidateRowTestResult);
+    cpApiKeyInput?.addEventListener('input', _invalidateRowTestResult);
+    protocolSelect.addEventListener('change', _invalidateRowTestResult);
+
+    // 初始状态优先级：
+    // 1) 内存里有记录（pass/fail/untested）→ 直接用（重渲染场景：+添加 / 删别行 / 改完字段又被重渲染都靠这条）
+    // 2) 没记录 + 字段全填 → 默认信任为"已通过"（老玩家只改无关字段不被误伤）
+    // 3) 没记录 + 字段不全 → "未测试"（新空行走这里，不会闪现绿色）
+    const _initialTestBtn = row.querySelector('[data-action~="api-test-btn"]');
+    const _initialApiKey = cpApiKeyInput ? _getApiKeyRealValue(cpApiKeyInput) : '';
+    const _isFullyConfigured = !!(cp.name && cp.baseUrl && _initialApiKey && cp.defaultModel);
+    const _memorizedResult = _cpTestResultMemory.get(cp.id);
+    if (_memorizedResult) {
+      if (_initialTestBtn && (_memorizedResult === 'pass' || _memorizedResult === 'fail')) {
+        _initialTestBtn.dataset.testResult = _memorizedResult;
+      }
+      _setRowBadge(_memorizedResult);
+    } else if (_isFullyConfigured) {
+      if (_initialTestBtn) _initialTestBtn.dataset.testResult = 'pass';
+      _setRowBadge('pass');
+    } else {
+      _setRowBadge('untested');
+    }
+
     // Max Output Tokens 开关：勾上才允许输入数字
     const maxTokensToggle = row.querySelector('.cp-maxtokens-enabled');
     const maxTokensInput = row.querySelector('.cp-maxtokens-value');
@@ -3953,7 +4123,21 @@ function _renderCustomProviderManager() {
     const cpNameInput = row.querySelector('.cp-name');
     cpNameInput?.addEventListener('input', () => _syncCustomProviderInlineChange(cp.id));
     const cpModelInput = row.querySelector('.cp-model');
-    cpModelInput?.addEventListener('input', () => _syncCustomProviderInlineChange(cp.id));
+    cpModelInput?.addEventListener('input', () => {
+      cpModelInput.classList.remove('cp-model-invalid');
+      cpModelInput.removeAttribute('aria-invalid');
+      _syncCustomProviderInlineChange(cp.id);
+      _invalidateRowTestResult();
+    });
+    cpModelInput?.addEventListener('paste', e => {
+      const pasted = e.clipboardData?.getData('text') || '';
+      if (_pastedLooksLikeApiKey(pasted)) {
+        // 等粘贴文本落定到 input 之后再弹 toast，避免顺序倒置
+        setTimeout(() => {
+          showToast(copy.general.provider.pastedLooksLikeApiKey, 'warning');
+        }, 0);
+      }
+    });
     // 测试按键事件
     const testBtn = row.querySelector('[data-action~="api-test-btn"]');
     testBtn.addEventListener('click', async () => {
@@ -3972,7 +4156,15 @@ function _renderCustomProviderManager() {
         return;
       }
       // 自定义 provider 的 ID 是 'custom', URL 是从配置获取的
-      _runApiTest(testBtn, 'custom', apiKey, model, baseUrl, protocol);
+      await _runApiTest(testBtn, 'custom', apiKey, model, baseUrl, protocol);
+      // 测试结束后同步徽章 + 记忆（重渲染时能恢复，不会被无脑预设成绿色）
+      const finalResult = testBtn.dataset.testResult || 'untested';
+      _setRowBadge(finalResult);
+      if (finalResult === 'pass' || finalResult === 'fail') {
+        _cpTestResultMemory.set(cp.id, finalResult);
+      } else {
+        _cpTestResultMemory.delete(cp.id);
+      }
     });
     // 获取模型列表按键事件
     const fetchModelsBtn = row.querySelector('[data-action~="cp-fetch-models-btn"]');
@@ -4030,7 +4222,22 @@ function _renderCustomProviderManager() {
         };
         setTimeout(() => document.addEventListener('mousedown', closeOnOutside), 0);
       } catch (e) {
-        showToast(copy.general.provider.fetchModelsFailed + ': ' + (e.message || ''));
+        // fetch 抛 TypeError = 网络/CORS 层失败，原生 message 是 "Load failed" / "Failed to fetch"
+        // 这种字符串对玩家无意义，直接显示精简的"无法连接"文案，不拼后缀
+        if (e.name === 'TypeError') {
+          showToast(copy.general.provider.apiErrorNetwork);
+        } else {
+          let prefix = copy.general.provider.fetchModelsFailed;
+          if (e.status === 401 || e.status === 403) {
+            prefix = copy.general.provider.apiErrorAuth;
+          } else if (e.status === 402) {
+            prefix = copy.general.provider.apiErrorBalance;
+          } else if (e.status === 404) {
+            prefix = copy.general.provider.apiErrorNotFound;
+          }
+          const detail = e.message || '';
+          showToast(detail ? `${prefix}: ${detail}` : prefix);
+        }
       } finally {
         fetchModelsBtn.disabled = false;
         fetchModelsBtn.innerHTML = '<span class="material-symbols-outlined">expand_more</span>';
@@ -4375,6 +4582,12 @@ function setupSettingsUI() {
     narrativeColorizeToggle.checked = localStorage.getItem('narrative-colorize') === 'on';
   }
 
+  const clickToSendToggle = document.getElementById('click-to-send-toggle');
+  if (clickToSendToggle) {
+    const stored = localStorage.getItem('click-to-send');
+    clickToSendToggle.checked = stored === null || stored === 'on';
+  }
+
   // 重新绑定 toggle tab-strip（HTML 已渲染，幂等调用）
   _bindToggleTabStrips();
 
@@ -4502,6 +4715,15 @@ function setupSettingsUI() {
       narrativeColorizeToggle.checked = localStorage.getItem('narrative-colorize') === 'on';
       narrativeColorizeToggle.addEventListener('change', () => {
         localStorage.setItem('narrative-colorize', narrativeColorizeToggle.checked ? 'on' : 'off');
+      });
+    }
+    // 点击选项即发送开关
+    const clickToSendToggle = document.getElementById('click-to-send-toggle');
+    if (clickToSendToggle) {
+      const stored = localStorage.getItem('click-to-send');
+      clickToSendToggle.checked = stored === null || stored === 'on';
+      clickToSendToggle.addEventListener('change', () => {
+        localStorage.setItem('click-to-send', clickToSendToggle.checked ? 'on' : 'off');
       });
     }
 
@@ -6303,10 +6525,61 @@ function closeSettings(shouldRollback = true) {
   modal.classList.add('hidden');
 }
 
+/**
+ * 扫描所有"看起来打算用的"自定义服务商行（name + baseUrl + key + model 都填了），
+ * 返回那些 testBtn.dataset.testResult !== 'pass' 的行的服务商名。
+ * 玩家修改 baseUrl/apiKey/model/protocol 时会 invalidate testResult，所以这里读到的是"当前配置下未通过"的行。
+ */
+function _collectUnverifiedCustomProviderNames() {
+  const rows = document.querySelectorAll('.custom-provider-row');
+  const result = [];
+  rows.forEach(row => {
+    const name = row.querySelector('.cp-name')?.value?.trim();
+    const baseUrl = row.querySelector('.cp-baseurl')?.value?.trim();
+    const apiKeyEl = row.querySelector('.cp-apikey');
+    const apiKey = apiKeyEl ? _getApiKeyRealValue(apiKeyEl) : '';
+    const model = row.querySelector('.cp-model')?.value?.trim();
+    // 任一字段空 → 不是"打算用"的完整配置，跳过（保存逻辑也会过滤）
+    if (!name || !baseUrl || !apiKey || !model) return;
+    const testBtn = row.querySelector('[data-action~="api-test-btn"]');
+    if (testBtn?.dataset.testResult !== 'pass') {
+      result.push(name);
+    }
+  });
+  return result;
+}
+
+// 用户已经在 modal 里选过"仍然保存" → 重入 saveSettings 时跳过 confirm
+let _skipUnverifiedCpSaveConfirm = false;
+
 function saveSettings() {
   const copy = _getSettingsCopy();
   _captureDraftProviderApiKeysFromUI();
   _captureDraftCustomProvidersFromUI();
+
+  // 自定义服务商"未测试就保存"提醒（一次性 confirm，玩家点"仍然保存"才放行）
+  if (!_skipUnverifiedCpSaveConfirm) {
+    const unverified = _collectUnverifiedCustomProviderNames();
+    if (unverified.length > 0 && typeof window.showConfirmModal === 'function') {
+      window.showConfirmModal(
+        copy.general.provider.unverifiedSaveTitle,
+        '',
+        () => {
+          _skipUnverifiedCpSaveConfirm = true;
+          try { saveSettings(); } finally { _skipUnverifiedCpSaveConfirm = false; }
+        },
+        null,
+        {
+          icon: 'warning',
+          descriptionHtml: copy.general.provider.unverifiedSaveBody(unverified),
+          confirmLabel: copy.general.provider.unverifiedSaveConfirm,
+          cancelLabel: copy.general.provider.unverifiedSaveCancel,
+        }
+      );
+      return;
+    }
+  }
+
 
   // === Function Name 格式校验 ===
   const fnContainer = document.getElementById('react-fn-list');
@@ -6351,6 +6624,50 @@ function saveSettings() {
         switchSettingsTabSafe(['react', 'prompts', 'api', 'basic']);
         return;
       }
+    }
+  }
+
+  // === Custom Provider 模型字段防错 ===
+  // 禁止空格（model id 不会有空格），禁止整段是字段标签文本，
+  // 触发任一规则就阻止保存、定位 api 标签、给输入框红框。
+  const cpRowsForValidation = document.querySelectorAll('.custom-provider-row');
+  const labelExactBlocklist = new Set([
+    'model', '模型',
+    'default model', '默认模型', '默认模型名称',
+    'name', '名称',
+    'provider name', '服务商名称',
+    'url',
+  ]);
+  for (const row of cpRowsForValidation) {
+    const modelInput = row.querySelector('.cp-model');
+    if (!modelInput) continue;
+    modelInput.classList.remove('cp-model-invalid');
+    modelInput.removeAttribute('aria-invalid');
+    const v = (modelInput.value || '').trim();
+    if (!v) continue;
+    let errMsg = null;
+    if (/\s/.test(v)) {
+      errMsg = copy.general.provider.invalidModelHasSpace;
+    } else if (v.length > 100) {
+      errMsg = copy.general.provider.invalidModelTooLong;
+    } else {
+      const lower = v.toLowerCase();
+      const looksLikeApiKey =
+        lower.includes('api key') ||
+        lower.includes('apikey') ||
+        lower.includes('api-key') ||
+        lower.includes('api 密钥') ||
+        lower.includes('密钥');
+      if (looksLikeApiKey || labelExactBlocklist.has(lower)) {
+        errMsg = copy.general.provider.invalidModelLooksLikeLabel(v);
+      }
+    }
+    if (errMsg) {
+      modelInput.classList.add('cp-model-invalid');
+      modelInput.setAttribute('aria-invalid', 'true');
+      showToast(errMsg, 'error');
+      switchSettingsTabSafe(['api', 'basic']);
+      return;
     }
   }
 

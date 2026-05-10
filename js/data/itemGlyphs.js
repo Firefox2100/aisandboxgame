@@ -1,6 +1,6 @@
 // js/data/itemGlyphs.js
 // 物品 icon 单一事实源：picker UI 列表 + 启发式映射 + 默认 fallback
-// 字体子集 allowlist 在 tools/fonts/material-icons-items-allowlist.json，
+// 字体子集 allowlist 在 tools/fonts/material-icons-items-allowlist.json， /* ui-lint-allow: 历史命名，文件 path 字面量 */
 // 两边的 glyph name 集合必须同步（否则 picker 选到的 icon 渲染空白）
 
 (function () {

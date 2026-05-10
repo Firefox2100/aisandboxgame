@@ -22,7 +22,6 @@ const streamVisualizer = {
     'grok',
     'anthropic',
     'siliconflow',
-    'openrouter',
     'sandbox',
   ]),
 
@@ -135,7 +134,6 @@ const streamVisualizer = {
     if (value.includes('deepseek')) return 'deepseek';
     if (value.includes('gemini')) return 'gemini';
     if (value.includes('siliconflow')) return 'siliconflow';
-    if (value.includes('openrouter')) return 'openrouter';
     if (value.includes('openai') || value.includes('chatgpt') || value.includes('gpt'))
       return 'openai';
     if (value.includes('grok') || value.includes('xai') || value.includes('x.ai')) return 'grok';
@@ -151,7 +149,6 @@ const streamVisualizer = {
     if (value.includes('deepseek')) return 'deepseek';
     if (value.includes('gemini')) return 'gemini';
     if (value.includes('siliconflow')) return 'siliconflow';
-    if (value.includes('openrouter')) return 'openrouter';
     if (value.includes('claude') || value.includes('anthropic')) return 'anthropic';
     if (value.includes('grok') || value.includes('xai') || value.includes('x.ai')) return 'grok';
     if (value.includes('gpt') || value.includes('openai') || value.includes('chatgpt'))
@@ -1259,7 +1256,7 @@ const streamVisualizer = {
       if (idx > 0) span.appendChild(document.createTextNode(', '));
       const sub = document.createElement('span');
       sub.textContent = name;
-      sub.style.color = `var(${this._resolveToolColor(name)})`;
+      sub.style.color = `var(${this._resolveToolColor(name)})`; /* ui-lint-allow: 动态 token 映射，按 CLAUDE.md JS 设色规范 */
       span.appendChild(sub);
     });
   },

@@ -44,7 +44,7 @@ class ReactLoop {
       }));
     }
 
-    // 默认 OpenAI tools 格式，覆盖 openai / deepseek / grok / siliconflow / openrouter / custom
+    // 默认 OpenAI tools 格式，覆盖 openai / deepseek / grok / siliconflow / custom
     return declarations.map(decl => ({
       type: 'function',
       function: {

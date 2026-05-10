@@ -618,6 +618,25 @@ class _DesignServiceRepairMixin {
     return false;
   }
 
+  // 判断 panel_npc 字段是否"数值类" — 经验/等级/声望/金币/血量等。
+  // 用于 Stage 3 校验时, 数值类字段缺失自动补 0 而不是 fatal 中断。
+  // 保守判定: 必须满足 (label 含数值关键词) 且 (没有 enum, 因为 enum 字段不能瞎填 0)。
+  _isNumericLikeCharacterField(field) {
+    if (!field || typeof field !== 'object') return false;
+    if (Array.isArray(field.enum) && field.enum.length > 0) return false;
+    if (field.type === 'number' || field.type === 'integer') return true;
+    const label = String(field.label || '').toLowerCase();
+    const key = String(field.key || '').toLowerCase();
+    const numericKeywords = [
+      // 中文
+      '经验', '等级', '声望', '金币', '钱', '血量', '生命', '魔力', '法力', '能量', '体力', '耐力', '积分', '分数', '点数',
+      // 英文
+      'exp', 'experience', 'level', 'rank', 'reputation', 'gold', 'coin', 'money', 'cash',
+      'hp', 'mp', 'health', 'mana', 'energy', 'stamina', 'score', 'point',
+    ];
+    return numericKeywords.some(kw => label.includes(kw) || key.includes(kw));
+  }
+
   _getCharacterFieldValueForValidation(character, fieldKey) {
     if (!character || typeof character !== 'object') return undefined;
     if (fieldKey === 'cognitive_state') {
@@ -733,6 +752,20 @@ class _DesignServiceRepairMixin {
         }
 
         if (!hasValue) {
+          // 数值类字段缺失自动填 0 + warning, 不报 fatal: AI 偶尔会漏填经验/等级/声望
+          // 这种"我也不知道初始值是多少"的字段, 之前 hard error 中断 Stage 3 影响用户体验。
+          // 字符串/枚举/复合字段保持 fatal — schema 严肃性不下降。
+          if (this._isNumericLikeCharacterField(field)) {
+            character[fieldKey] = 0;
+            report.warnings.push({
+              characterId,
+              fieldKey,
+              fieldLabel: field.label || fieldKey,
+              issueType: 'auto_filled',
+              message: `${characterId} -> ${fieldKey}(${field.label || fieldKey}) 缺失, 已自动补 0`,
+            });
+            continue;
+          }
           report.errors.push({
             characterId,
             fieldKey,
@@ -1172,12 +1205,18 @@ class _DesignServiceRepairMixin {
               Array.isArray(def.enum) && def.enum.length > 0
                 ? ` [枚举: ${def.enum.map(v => `"${v}"`).join(' | ')}]`
                 : '';
-            const descText = def.desc ? ` (${def.desc})` : '';
+            const metaParts = [];
+            const labelCandidate = def.label || field.fieldLabel;
+            if (labelCandidate && labelCandidate !== field.fieldKey) {
+              metaParts.push(labelCandidate);
+            }
+            if (def.desc) metaParts.push(def.desc);
+            const metaText = metaParts.length > 0 ? ` (${metaParts.join(' / ')})` : '';
             const issueText =
               field.issueType === 'invalid_enum'
                 ? ` [当前值不合法: ${field.invalidValue || '空值'}]`
                 : ' [缺失]';
-            return `- ${field.fieldKey}${descText}${enumText}${issueText}`;
+            return `- ${field.fieldKey}${metaText}${enumText}${issueText}`;
           })
           .join('\n');
         const snapshot = characterDatabase?.[characterId]
@@ -1329,7 +1368,7 @@ ${requirementsText}`;
   stopCurrentProcessing() {
     if (this.designRequestAbortController) {
       try {
-        this.designRequestAbortController.abort();
+        this.designRequestAbortController.abort(new Error('Design repair cancelled'));
       } catch (_e) {
         /* ignore */
       }
@@ -1344,7 +1383,7 @@ ${requirementsText}`;
   stopAutoGenerate() {
     if (this.phase2AbortController) {
       try {
-        this.phase2AbortController.abort();
+        this.phase2AbortController.abort(new Error('Phase 2 已中止'));
       } catch (_e) {
         /* ignore */
       }

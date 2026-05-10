@@ -656,7 +656,7 @@ function _collapseChoicesBlock(gameChoicesEl) {
   summary.innerHTML = `
     <span class="choices-collapsed-icon">💭</span>
     <span class="choices-collapsed-text"></span>
-    <span class="choices-collapsed-expand">▶</span>
+    <span class="choices-collapsed-expand">▶</span><!-- ui-lint-allow: 与 💭 emoji 配对的装饰三角 -->
   `;
   summary.querySelector('.choices-collapsed-text').textContent = summaryText;
   summary.addEventListener('click', () => {
@@ -693,9 +693,47 @@ function _findFollowingUserMessageText(gameChoicesEl) {
   return '';
 }
 
+// UI 诊断埋点（追"对话框卡住 / 模式横跳"症状用）。仅在 settlement 阶段开启
+// 上报，避免砸 analytics。同 type 100ms 节流。零副作用，never throw。
+window.__uiDiag = window.__uiDiag || {
+  _settlementActive: false,
+  _settlementStartTs: 0,
+  _lastTs: {},
+  _seq: 0,
+  setSettlement(active) {
+    this._settlementActive = !!active;
+    if (active) this._settlementStartTs = performance.now();
+  },
+  track(type, extra) {
+    try {
+      if (!this._settlementActive) return;
+      const now = performance.now();
+      if (this._lastTs[type] && now - this._lastTs[type] < 100) return;
+      this._lastTs[type] = now;
+      const ds = window.analyticsService;
+      if (!ds || typeof ds.track !== 'function') return;
+      const inputArea = document.querySelector('.chat-input-area');
+      const stack = (new Error().stack || '').split('\n').slice(2, 5).map(s => s.trim()).join(' | ').slice(0, 280);
+      ds.track(type, {
+        seq: ++this._seq,
+        t_settlement_ms: Math.round(now - this._settlementStartTs),
+        is_design_mode: !!window.isDesignMode,
+        is_sending: typeof window.isSending !== 'undefined' ? !!window.isSending : null,
+        streaming: !!(window.streamVisualizer && typeof window.streamVisualizer.isStreaming === 'function' && window.streamVisualizer.isStreaming()),
+        has_active_request: !!(window.aiService && typeof window.aiService.hasActiveRequest === 'function' && window.aiService.hasActiveRequest()),
+        bar_classes: inputArea ? inputArea.className : null,
+        bar_parent: inputArea?.parentElement?.className || null,
+        caller_stack: stack,
+        ...(extra || {}),
+      });
+    } catch (_) { /* never throw */ }
+  },
+};
+
 function moveBarToBottom() {
   const inputArea = document.querySelector('.chat-input-area');
   if (!inputArea) return;
+  window.__uiDiag.track('diag.bar.move_to_bottom', { had_inline_as_choice: inputArea.classList.contains('inline-as-choice') });
   _cacheInputOriginalParent();
   if (!_inputAreaOriginalParent) return;
   if (inputArea.parentNode !== _inputAreaOriginalParent) {
@@ -722,6 +760,7 @@ function relocateInputIntoLatestChoices() {
   if (latest.querySelectorAll('.choice-item:not(.stale)').length === 0) return false;
   const inputArea = document.querySelector('.chat-input-area');
   if (!inputArea) return false;
+  window.__uiDiag.track('diag.bar.relocate_inline', { already_inline: latest.contains(inputArea) });
   _cacheInputOriginalParent();
 
   if (!latest.contains(inputArea)) {
@@ -826,8 +865,24 @@ function bindChoiceClickEvents() {
         delete input.dataset.selectedChoiceText;
       }
 
-      input.focus({ preventScroll: true });
-      if (typeof autoResizeTextarea === 'function') autoResizeTextarea();
+      // 「点击选项即发送」开关：开启时直接派发发送；AI 流式中（按钮处于 cancel-mode）
+      // 不自动发，避免误触取消，让用户自己决定是要改文本还是要中止当前回合。
+      // auto-send 路径不 focus 输入栏：iOS/Android 上 focus 会弹软键盘，preventScroll
+      // 也挡不住；用户用「点」就是不想打字。autoResize 也跳过——handleSendMessage
+      // 紧接着会清空 value 并 reset 高度。
+      // 默认开：localStorage 没值视为开，只有显式存了 'off' 才关
+      const wantsAutoSend = localStorage.getItem('click-to-send') !== 'off';
+      const sendBtn = wantsAutoSend
+        ? document.querySelector('[data-action~="chat-send-btn"]')
+        : null;
+      const canAutoSend = !!sendBtn && !sendBtn.classList.contains('cancel-mode');
+
+      if (wantsAutoSend && canAutoSend) {
+        sendBtn.click();
+      } else {
+        input.focus({ preventScroll: true });
+        if (typeof autoResizeTextarea === 'function') autoResizeTextarea();
+      }
     });
   });
   _markStaleChoices();

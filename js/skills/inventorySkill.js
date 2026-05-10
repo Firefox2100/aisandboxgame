@@ -59,7 +59,7 @@
         const tombstones = ctx?.tombstones || [];
         const activeStr =
           activeItems.length > 0
-            ? activeItems.map(it => `${it.name}×${it.count}`).join('、')
+            ? activeItems.map(it => `${it.name}×${it.count}`).join('、') /* ui-lint-allow: 物品计数乘号 */
             : '（空）';
         const tombStr = tombstones.length > 0 ? tombstones.map(it => it.name).join('、') : '（无）';
         return [

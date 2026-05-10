@@ -353,7 +353,6 @@ class SaveManager {
               'grok',
               'anthropic',
               'siliconflow',
-              'openrouter',
             ].includes(providerKey)
           ) {
             cleaned.providerKey = providerKey;

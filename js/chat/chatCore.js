@@ -1026,7 +1026,6 @@ const SUPPORTED_AI_PROVIDERS = new Set([
   'grok',
   'anthropic',
   'siliconflow',
-  'openrouter',
 ]);
 
 function normalizeProviderKey(raw) {
@@ -1043,7 +1042,6 @@ function normalizeProviderKey(raw) {
   if (value.includes('deepseek')) return 'deepseek';
   if (value.includes('gemini')) return 'gemini';
   if (value.includes('siliconflow')) return 'siliconflow';
-  if (value.includes('openrouter')) return 'openrouter';
   if (value.includes('openai') || value.includes('chatgpt') || value.includes('gpt'))
     return 'openai';
   if (value.includes('grok') || value.includes('xai') || value.includes('x.ai')) return 'grok';
@@ -1059,7 +1057,6 @@ function inferProviderKeyFromModelLabel(modelLabel) {
   if (value.includes('deepseek')) return 'deepseek';
   if (value.includes('gemini')) return 'gemini';
   if (value.includes('siliconflow')) return 'siliconflow';
-  if (value.includes('openrouter')) return 'openrouter';
   if (value.includes('claude') || value.includes('anthropic')) return 'anthropic';
   if (value.includes('grok') || value.includes('xai') || value.includes('x.ai')) return 'grok';
   if (value.includes('gpt') || value.includes('openai') || value.includes('chatgpt'))
@@ -1673,7 +1670,7 @@ function showDesignPrompt(title, message, defaultValue = '') {
     input.value = defaultValue || '';
     modal.classList.remove('hidden');
     setTimeout(() => {
-      input.focus();
+      input.focus({ preventScroll: true });
       input.select();
     }, 50);
 
@@ -1920,7 +1917,7 @@ async function handleDesignModeExecute() {
     if (designService.p1Output) {
       const confirmed = await showDesignConfirm(
         '确认使用当前框架开始生成？',
-        '将基于预览中的框架内容生成世界卡。建议在开始前切换至「推理模型」（如 Claude Opus / DeepSeek R1 等）以获得最佳质量。'
+        '将基于预览中的框架内容生成世界卡。建议在开始前切换至「推理模型」，或启用「推荐设置」（一键采用我们调好的最优配置）以获得最佳质量。'
       );
       if (!confirmed) return;
       if (isSending) return;
@@ -1942,7 +1939,7 @@ async function handleDesignModeExecute() {
       '开始自动生成世界？',
       '<div style="text-align: left; line-height: 1.6;">' +
       '如果对话还未结束，AI 会根据已有内容自动补全缺失的设定。<br><br>' +
-      '<span style="opacity: 0.85; font-size: 0.95em;"> 建议在开始前切换至「推理模型」（如 Claude Opus / DeepSeek R1 等）以获得最佳质量</span>' +
+      '<span style="opacity: 0.85; font-size: 0.95em;"> 建议在开始前切换至「推理模型」，或启用「推荐设置」以获得最佳质量</span>' +
       '</div>'
     );
     if (!confirmed) return;
@@ -2301,7 +2298,6 @@ function _formatAIFailureMessage(error) {
     anthropic: 'Anthropic',
     grok: 'Grok',
     siliconflow: 'SiliconFlow',
-    openrouter: 'OpenRouter',
     custom: 'Custom',
     tool_engine: 'ToolEngine',
     codeengine: 'CodeEngine',
@@ -2351,51 +2347,160 @@ function _extractServerErrorText(responseBody) {
  */
 function _buildDiagnosisHtml(errorInfo, error, msgIdx) {
   const info = errorInfo || {};
-  const status = info.httpStatus;
+  // upstream_failure 类型 (commentary-empty 分支) 的 httpStatus 自身是 null（emptyTextError
+  // 不带 apiErrorInfo），但我们在分类时把上游真错误的 httpStatus 挂到 upstreamStatus 字段。
+  // 把它当 status 用，让 402/429/500 等已有分支自动接住——避免重复写文案。
+  const status = info.httpStatus ?? info.upstreamStatus;
   const type = info.errorType;
   const elapsed = info.elapsedMs || info.stageElapsedMs;
   const elapsedSec = elapsed ? (elapsed / 1000).toFixed(1) : null;
 
   let body = '';
-  if (type === 'network') {
-    body = '看起来是<strong>网络中断</strong>了——你的请求根本没送到服务器。这种情况通常是网络临时抖了一下，并不是什么大问题。先<strong>重试一次</strong>看看，多半就好了。';
+
+  // upstream_failure 路径优先按 ReAct 的 upstreamKind 分类（已经做过 message 强信号识别），
+  // 不能让 raw status 抢先误导——比如中转站把"余额不足"用 403 返回，按 status 会走"权限被限制"，
+  // 但 upstreamKind='balance' 是对的。kind === 'unknown' 时 fall-through 到下面 status 路由 / 最终兜底。
+  // 完整错误码语义见 docs/API_ERROR_CODES.md
+  if (type === 'upstream_failure' && info.upstreamKind && info.upstreamKind !== 'unknown') {
+    const kind = info.upstreamKind;
+    const rawMsg = info.upstreamRawMessage || info.message || '';
+    const esc = window.htmlSecurity?.escapeText || (s => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+    const escapedMsg = esc(rawMsg);
+    const upstreamStatus = info.upstreamStatus;
+    if (kind === 'safety_filtered') {
+      const safetyReason = esc(info.safetyReason || '');
+      const safetyStage = info.safetyStage;
+      body = safetyStage === 'prompt'
+        ? `<strong>你的输入触发了 Gemini 的内容审查</strong>（${safetyReason || '未知原因'}），整个请求被拒。常见触发位置：最近的对话内容、自定义世界卡、或 system prompt。试试<strong>调整一下输入内容</strong>，或在「设置」里换一个模型再试。`
+        : `<strong>Gemini 在生成过程中被自家内容审查切断</strong>（${safetyReason || '未知原因'}）。可以先<strong>重试一次</strong>看看；反复出现可以在「设置」里调短 narrative 长度（短一些不容易触发），或者换一个模型再试。`;
+    } else if (kind === 'balance') {
+      body = `<strong>账户余额不足</strong>，服务商拒绝继续提供服务。原始错误：<code>${escapedMsg}</code>。去服务商的官网/控制台充点钱再试。`;
+    } else if (kind === 'billing_disabled') {
+      body = `<strong>账户没开通计费</strong>——你的服务商账户需要先启用付费功能才能用这个模型，或者你所在的地区不支持免费层。原始错误：<code>${escapedMsg}</code>。去服务商控制台开通付费即可。`;
+    } else if (kind === 'auth') {
+      body = `服务商拒绝了鉴权——多半是 <strong>API 密钥不对</strong>或权限不够。原始错误：<code>${escapedMsg}</code>。去「设置」检查一下 API key。`;
+    } else if (kind === 'rate_or_quota') {
+      body = `服务商启动了<strong>限流保护</strong>——可能短时间请求太快或者 quota 用完了。原始错误：<code>${escapedMsg}</code>。<strong>等几分钟再试</strong>就行。`;
+    } else if (kind === 'network') {
+      body = `<strong>没连上服务商</strong>，请求根本没送到。最常见原因（按概率从高到低）：<br>1. <strong>URL 拼错了</strong>——核对上面"请求地址"那一行，特别注意域名拼写、是否带 <code>/v1</code><br>2. 网络断了 / VPN 抖了一下<br>3. 该服务商不允许浏览器跨域调用（CORS 问题，建议换其他服务商）<br>原始错误：<code>${escapedMsg}</code>`;
+    } else if (kind === 'payload_too_large') {
+      body = `<strong>请求内容超出服务商的大小限制</strong>（Anthropic 是 32MB）——通常是历史聊天记录太长、或图片太大。可以试着<strong>清掉早期的对话历史</strong>或在「设置」里调小 narrative 长度。原始错误：<code>${escapedMsg}</code>`;
+    } else if (kind === 'provider_5xx') {
+      // Anthropic 529 是 API 全局过载，跟玩家自己的账户/请求都没关系；其他 5xx 是单家服务器问题
+      const is529 = upstreamStatus === 529;
+      body = is529
+        ? `<strong>服务商整体过载</strong>（status 529——所有用户都在排队）。这跟你的账户或请求都没关系，<strong>稍等几分钟再试</strong>就行。原始错误：<code>${escapedMsg}</code>`
+        : `服务商自己的服务器出问题了，跟你没关系。原始错误：<code>${escapedMsg}</code>。一般是临时性的，<strong>稍等几分钟再试</strong>多半就好；反复失败可以去服务商状态页确认。`;
+    } else if (kind === 'forced_tool_thinking_incompat') {
+      // Kimi-2.5 / DeepSeek-reasoner / 部分推理后端：thinking 启用时拒绝 forced tool_choice。
+      // 我们对 deepseek 已自动降级 thinking，但 'custom' provider 走第三方代理时无法预判后端默认。
+      // 游戏主流程依赖 forced tool_choice 做硬保证，所以引导用户关 thinking 而不是降工具调用。
+      body = `当前模型/后端不支持「同时启用 <strong>thinking</strong> 和强制工具调用」。我们的游戏主流程依赖强制工具调用做硬保证，所以建议<strong>关闭 thinking</strong>——在「设置 → API 设置 → 思考模式」里调整，或换一个稳定支持工具调用的模型试试。原始错误：<code>${escapedMsg}</code><button class="" data-action="error-diagnosis-open-settings-btn">打开设置</button>`;
+    }
+  }
+  if (body) {
+    // upstream_failure 已命中 kind 分支，跳过下面的 status / type 路由
+  } else if (type === 'safety_filtered') {
+    // 直接 errorType（path B）：通常是设计模式等不走 ReAct 包装的路径直调 Gemini 撞审查
+    const esc = window.htmlSecurity?.escapeText || (s => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+    const safetyReason = esc(info.safetyReason || '');
+    const safetyStage = info.safetyStage;
+    body = safetyStage === 'prompt'
+      ? `<strong>你的输入触发了 Gemini 的内容审查</strong>（${safetyReason || '未知原因'}），整个请求被拒。常见触发位置：最近的对话内容、自定义世界卡、或 system prompt。试试<strong>调整一下输入内容</strong>，或在「设置」里换一个模型再试。`
+      : `<strong>Gemini 在生成过程中被自家内容审查切断</strong>（${safetyReason || '未知原因'}）。可以先<strong>重试一次</strong>看看；反复出现可以在「设置」里调短 narrative 长度，或者换一个模型再试。`;
+  } else if (type === 'network') {
+    body = '<strong>没连上服务商</strong>，请求根本没送到。最常见原因（按概率从高到低）：<br>1. <strong>URL 拼错了</strong>——核对上面"请求地址"那一行，特别注意域名拼写、是否带 <code>/v1</code><br>2. 网络断了 / VPN 抖了一下<br>3. 该服务商不允许浏览器跨域调用（CORS 问题，建议换其他服务商）';
   } else if (type === 'timeout') {
     const elapsedNote = elapsedSec ? `等了 ${elapsedSec} 秒` : '等了挺久';
     body = `${elapsedNote}还没等到服务器回应，看起来是<strong>网络中断</strong>了。这种情况下数据卡在了路上，并不是你或者服务器哪里出问题，先<strong>重试一次</strong>试试就行。`;
   } else if (status === 400) {
-    body = '你这次发出去的请求里有 provider 不认识的字段或格式，所以被它拒掉了。具体是哪个字段，看上面卡片里"服务端返回"那一行就能看到。一般调整一下设置就好。';
-  } else if (status === 401) {
-    body = 'provider 没认出你的身份，多半是 <strong>API 密钥不对</strong>——可能没填、填错了、或者已经过期。去「设置」里把对应 provider 的 API key 重新检查一下吧。';
+    // Gemini 用 400 包装了三种语义不同的错（不是 401 / 不是 402），需要分开诊断：
+    //  a) API key 错 → INVALID_ARGUMENT + API_KEY_INVALID/API_KEY_EXPIRED → auth 文案
+    //  b) 账户没开 billing / 地区不支持免费层 → FAILED_PRECONDITION → billing_disabled 文案
+    //  c) 真的请求字段错 → 默认文案
+    const rawMsg = info.upstreamRawMessage || info.message || error?.message || '';
+    if (/API[_\s]?KEY[_\s]?(INVALID|EXPIRED)|api.{0,5}key.{0,5}(invalid|expired|not[_\s]?valid)/i.test(rawMsg)) {
+      body = '服务商没认出你的身份，多半是 <strong>API 密钥不对</strong>——可能没填、填错了、或者已经过期。去「设置」里把对应服务商的 API key 重新检查一下吧。';
+    } else if (/FAILED_PRECONDITION|billing[\s_]?account|billing.{0,10}(not[\s_]?(enabled|configured)|required|disabled)/i.test(rawMsg)) {
+      body = '<strong>账户没开通计费</strong>——你的服务商账户需要先启用付费功能才能用这个模型，或者你所在的地区不支持免费层。去服务商控制台开通付费即可。';
+    } else {
+      body = '你这次发出去的请求里有服务商不认识的字段或格式，所以被它拒掉了。具体是哪个字段，看上面卡片里"服务端返回"那一行就能看到。一般调整一下设置就好。';
+    }
+  } else if (status === 401 || status === 403) {
+    // 中转站常用 401/403 包装"余额不足"——message 关键词比 status 准（boxhill 之类把"用户额度不足"用 403 返回）；
+    // 同样的优先级在 ReAct 包装路径里已经体现在 classifyUpstreamErrorStep，这里给非 ReAct 路径（设计模式等直调）也用上
+    const rawMsg = info.upstreamRawMessage || info.message || error?.message || '';
+    if (/余额|额度|insufficient[\s_]?balance|out of credit/i.test(rawMsg)) {
+      body = '你的<strong>账户余额不足</strong>，服务商拒绝继续提供服务。去服务商的官网/控制台充点钱，回来再试就能恢复。';
+    } else if (status === 401) {
+      body = '服务商没认出你的身份，多半是 <strong>API 密钥不对</strong>——可能没填、填错了、或者已经过期。去「设置」里把对应服务商的 API key 重新检查一下吧。';
+    } else {
+      body = '你能登录，但服务商不允许你访问这个具体的资源——可能这个模型对你的 key 没开放，也可能 key 的权限被限制了。回服务商后台检查一下 key 的权限设置。';
+    }
   } else if (status === 402) {
-    body = '你的<strong>账户余额不足</strong>，provider 拒绝继续提供服务。去 provider 的官网/控制台充点钱，回来再试就能恢复。';
-  } else if (status === 403) {
-    body = '你能登录，但 provider 不允许你访问这个具体的资源——可能这个模型对你的 key 没开放，也可能 key 的权限被限制了。回 provider 后台检查一下 key 的权限设置。';
+    body = '你的<strong>账户余额不足</strong>，服务商拒绝继续提供服务。去服务商的官网/控制台充点钱，回来再试就能恢复。';
   } else if (status === 404) {
-    body = 'provider 找不到你请求的东西，通常是「设置」里这个 provider 的 <strong>base URL 没填对</strong>，或者模型名拼错了。回去把这两个字段对一下。';
+    body = '服务商找不到你请求的东西，通常是「设置」里这个服务商的 <strong>base URL 没填对</strong>，或者模型名拼错了。回去把这两个字段对一下。';
+  } else if (status === 413) {
+    body = '<strong>请求内容超出服务商的大小限制</strong>（Anthropic 是 32MB）——通常是历史聊天记录太长、或图片太大。可以试着<strong>清掉早期的对话历史</strong>或在「设置」里调小 narrative 长度。';
   } else if (status === 422) {
-    body = '请求格式没问题，但其中某个参数的取值不被 provider 接受（比如数字超出了允许范围）。卡片里"服务端返回"会指出是哪个参数，调一下再试。';
+    body = '请求格式没问题，但其中某个参数的取值不被服务商接受（比如数字超出了允许范围）。卡片里"服务端返回"会指出是哪个参数，调一下再试。';
   } else if (status === 429) {
-    body = '短时间内请求发太快了，provider 启动了<strong>限流保护</strong>——这是它那边的配额机制，跟你账户没问题。<strong>等几秒钟再试</strong>就行。';
+    // OpenAI 把"账户余额耗尽"也用 429 + code 'insufficient_quota'/'billing_hard_limit_reached' 返回——区分两者，
+    // 前者要充钱不是等。path A (ReAct) 已在 classifyUpstreamErrorStep 里处理；这里给 path B 同等待遇。
+    const code = info.providerErrorCode;
+    const rawMsg = info.upstreamRawMessage || info.message || error?.message || '';
+    if (code === 'insufficient_quota' || code === 'billing_hard_limit_reached'
+        || /insufficient[\s_]?quota|billing[\s_]?hard[\s_]?limit/i.test(rawMsg)) {
+      body = '你的<strong>账户余额不足</strong>，服务商拒绝继续提供服务。去服务商的官网/控制台充点钱，回来再试就能恢复。';
+    } else {
+      body = '短时间内请求发太快了，服务商启动了<strong>限流保护</strong>——这是它那边的配额机制，跟你账户没问题。<strong>等几分钟再试</strong>就行。';
+    }
   } else if (status === 500) {
-    body = 'provider 自己的服务器出问题了，跟你没关系。一般是临时性的，<strong>稍等几分钟再试</strong>多半就好；如果一直失败，可以去 provider 的状态页确认一下是不是在维护。';
+    body = '服务商自己的服务器出问题了，跟你没关系。一般是临时性的，<strong>稍等几分钟再试</strong>多半就好；如果一直失败，可以去服务商的状态页确认一下是不是在维护。';
   } else if (status === 503) {
-    body = 'provider 现在用的人太多，<strong>服务器过载</strong>处理不过来了。<strong>稍等一会儿再试</strong>就行，通常几分钟就能恢复。';
+    body = '服务商现在用的人太多，<strong>服务器过载</strong>处理不过来了。<strong>稍等一会儿再试</strong>就行，通常几分钟就能恢复。';
+  } else if (status === 529) {
+    // Anthropic 自定义状态码：API 全局过载（不是单家服务器挂了）
+    body = '<strong>服务商整体过载</strong>（status 529——所有用户都在排队），跟你的账户或请求都没关系。<strong>稍等几分钟再试</strong>就行，通常很快恢复。';
   } else if (typeof status === 'number' && status >= 500) {
-    body = 'provider 服务端出了点问题，跟你的请求没关系。一般是临时的，<strong>重试一次</strong>就行。';
+    body = '服务商那边的服务器出了点问题，跟你的请求没关系。一般是临时的，<strong>重试一次</strong>就行。';
   } else if (typeof status === 'number' && status >= 400) {
-    body = '请求被 provider 拒掉了。具体原因看上面卡片里的 HTTP 状态和"服务端返回"，那两行会指出问题。';
+    body = '请求被服务商拒掉了。具体原因看上面卡片里的 HTTP 状态和"服务端返回"，那两行会指出问题。';
   } else if (type === 'parse') {
-    body = '服务器倒是给了响应，但返回的内容不是合法的 JSON，看起来是 provider 那边出了点临时故障。这种情况<strong>重试一次</strong>一般就好。';
+    body = '服务器倒是给了响应，但返回的内容不是合法的 JSON，看起来是服务商那边出了点临时故障。这种情况<strong>重试一次</strong>一般就好。';
+  } else if (type === 'upstream_failure') {
+    // 已识别的 upstreamKind（balance/auth/rate_or_quota/network/provider_5xx）已在函数顶部
+    // short-circuit 提前处理，走到这里说明 kind === 'unknown' 或缺失——老实把原 message 显示出来
+    const rawMsg = info.upstreamRawMessage || info.message || '';
+    const esc = window.htmlSecurity?.escapeText || (s => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
+    const escapedMsg = esc(rawMsg);
+    body = rawMsg
+      ? `服务商报错：<code>${escapedMsg}</code>。先<strong>重试一次</strong>看看，反复出现可以去服务商状态页确认或反馈给开发者。`
+      : '上游 API 调用失败，但具体原因没有更多信息。先<strong>重试一次</strong>试试，反复出现可以反馈给开发者。';
+  } else if (type === 'narrative_skipped') {
+    // 4a9a8b66 类问题: 模型 fc 协议会用 (调了其他工具) 但被 named tool_choice
+    // 强制要求调 update_narrative 时不调，典型 Gemini gemini-3.1-flash-lite-preview
+    // 抽风行为。不引导换模型 (语义不对)，只让用户重试。
+    body = '模型这次没生成叙事——它执行了其他工具，但跳过了关键的"叙事生成"工具。这通常是模型对工具调用的<strong>遵守不够稳定</strong>（一种偶发抽风），<strong>重试一次</strong>多半就好。如果反复出现，可以在「设置 → API 设置」里换一个工具调用更稳定的模型试试。';
   } else if (type === 'no_function_calling') {
-    const esc = window.htmlSecurity?.escapeText || (s => String(s ?? ''));
+    const esc = window.htmlSecurity?.escapeText || (s => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'));
     const providerLabel = esc(info.provider || '');
     const modelLabel = esc(info.model || '');
     const modelDesc = providerLabel || modelLabel
       ? `当前模型「<strong>${providerLabel}${providerLabel && modelLabel ? ' · ' : ''}${modelLabel}</strong>」`
       : '当前模型';
-    body = `${modelDesc}没有按 function calling 协议返回内容——游戏主流程要求模型能调用 update_narrative 等工具，<strong>这个模型可能不支持工具调用</strong>。请到「设置 → API 设置」切换到支持 function calling 的模型（如 DeepSeek V4-Pro / Claude Sonnet / GPT-5 等）。<button class="" data-action="error-diagnosis-open-settings-btn">打开设置</button>`;
+    body = `${modelDesc}没有按工具调用协议返回内容——游戏主流程要求模型能调用 update_narrative 等工具，<strong>这个模型可能不支持工具调用</strong>。请到「设置 → API 设置」<strong>切换到支持工具调用的模型</strong>，或<strong>启用「推荐设置」</strong>（一键采用我们调好的最优配置）。<button class="" data-action="error-diagnosis-open-settings-btn">打开设置</button>`;
   } else if (type === 'unexpected_format') {
-    body = 'provider 给了响应，但内容缺了我们期望的某些字段——大概率是模型这一次没按要求输出。<strong>重试一次</strong>，多半就正常了。';
+    body = '服务商给了响应，但内容缺了我们期望的某些字段——大概率是模型这一次没按要求输出。<strong>重试一次</strong>，多半就正常了。';
   } else if (type === 'validation' || error?.code === 'DESIGN_VALIDATION_FAILED') {
     body = '模型这次生成的内容没通过校验——可能缺了必填字段，也可能某个字段格式不对。这是模型偶发"开小差"，<strong>重试一次</strong>通常就能拿到合规的版本。';
   } else if (type === 'runtime') {
@@ -2596,7 +2701,7 @@ function _renderErrorBannerHTML(error) {
   }
   if (providerText) {
     lines.push(
-      `<div class="chat-error-row"><span class="chat-error-label">Provider</span>${escapeHTML(providerText)}</div>`
+      `<div class="chat-error-row"><span class="chat-error-label">服务商</span>${escapeHTML(providerText)}</div>`
     );
   }
   if (modelText) {
@@ -3304,7 +3409,7 @@ async function handleDesignModeSendMessage(message, displayMessage) {
         const summaryParts = [];
         summaryParts.push(
           editResult.applied > 0
-            ? `> ✓ 已应用 ${editResult.applied} 处修改，请查看右侧角色卡。`
+            ? `> ✓ 已应用 ${editResult.applied} 处修改，请查看右侧角色卡。` /* ui-lint-allow: markdown 状态消息装饰勾 */
             : '> ⓘ 本次未生成实际修改（可能超出审阅范围或 AI 仅做了说明）。'
         );
         const discarded = editResult.discardedByTarget || {};
@@ -3793,7 +3898,7 @@ async function handleDesignModePhase2() {
                 <span class="design-dot"></span><span class="design-dot"></span><span class="design-dot"></span>
             </div>
             <div class="design-auto-progress">正在生成: ${stageNames[initialStage - 1]}（${initialStage}/4）</div>
-            <div class="design-auto-progress">生成完整世界卡的时间大约在5-15分钟（取决于使用的模型），建议使用顶级模型以保证世界卡质量，推荐：Claude Opus 4.6，Gemini 3.1 Pro，Deepseek Reasoner</div>
+            <div class="design-auto-progress">生成完整世界卡的时间大约在 5-15 分钟（取决于使用的模型），建议使用顶级模型，或启用「推荐设置」以保证世界卡质量。</div>
             <div class="design-stream-preview"></div>
         </div>
     `;
@@ -5797,7 +5902,13 @@ let _pendingChatRefreshOptions = _normalizeChatRefreshOptions();
 
 function refreshChatUI(options = {}) {
   const normalizedOptions = _normalizeChatRefreshOptions(options);
-  if (_shouldDeferChatRefresh()) {
+  const willDefer = _shouldDeferChatRefresh();
+  window.__uiDiag?.track?.('diag.chat.refresh', {
+    scroll_mode: normalizedOptions.scrollMode,
+    will_defer: willDefer,
+    pending_was: _pendingChatRefresh,
+  });
+  if (willDefer) {
     _pendingChatRefresh = true;
     _pendingChatRefreshOptions = normalizedOptions;
     return false;

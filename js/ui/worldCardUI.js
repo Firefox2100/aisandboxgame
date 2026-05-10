@@ -1042,8 +1042,10 @@ function _doLoadCardIntoDesignMode(card) {
     if (window.worldCardInfoUI) window.worldCardInfoUI.refresh();
   } else {
     // 从游戏模式切换：模拟点击 tab-strip
+    // 守卫与 _handleResumeDraft / launcher.activateDesignMode 对齐——避免在已经
+    // 处于 design-mode class 但 isDesignMode==false 的 desync 场景下再切回去
     const modeToggle = document.getElementById('mode-toggle');
-    if (modeToggle) modeToggle.click();
+    if (modeToggle && !modeToggle.classList.contains('design-mode')) modeToggle.click();
   }
 
   // 7. 提示

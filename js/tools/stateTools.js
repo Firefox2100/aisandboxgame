@@ -119,6 +119,24 @@
           const previousStr = prev
             ? [prev.country, prev.site, prev.spot].filter(Boolean).join(' > ')
             : '未知';
+
+          // 软性记录：location 是否在世界卡 sites/locations 里（不阻断写入）。
+          // 仅作 trace 留痕用，便于回查模型是否在编造世界卡外的地名。
+          const mapData = window.mapService?.getMapData?.();
+          if (mapData) {
+            const knownNames = new Set();
+            (mapData.worldMap || []).forEach(c => { if (c?.siteName) knownNames.add(c.siteName); });
+            Object.values(mapData.localMapCache || {}).forEach(localMap => {
+              (localMap || []).forEach(c => { if (c?.locationName) knownNames.add(c.locationName); });
+            });
+            const candidates = [args.location.new_location, args.location.site].filter(Boolean);
+            const unknown = candidates.filter(n => !knownNames.has(n));
+            if (unknown.length > 0) {
+              results.location = results.location || {};
+              results.location.note = `${unknown.map(n => `「${n}」`).join('、')}未在世界卡 sites/locations 中找到`;
+            }
+          }
+
           const update = { spot: args.location.new_location };
           if (args.location.site) update.site = args.location.site;
           lt.updateManually(update);
@@ -126,7 +144,7 @@
             ? `${args.location.site} > ${args.location.new_location}`
             : args.location.new_location;
           console.log(`[update_panel.location] ${previousStr} → ${currentStr}`);
-          results.location = { previous: previousStr, current: currentStr };
+          results.location = { ...(results.location || {}), previous: previousStr, current: currentStr };
         }
       }
 

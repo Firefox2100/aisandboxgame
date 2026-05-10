@@ -67,7 +67,8 @@ class _DesignServiceP3Mixin {
     // 支持外部 abortSignal
     let externalAbortHandler;
     if (options.abortSignal instanceof AbortSignal) {
-      externalAbortHandler = () => requestAbortController.abort();
+      externalAbortHandler = () =>
+        requestAbortController.abort(options.abortSignal.reason ?? new Error('Phase 3 cancelled'));
       if (options.abortSignal.aborted) externalAbortHandler();
       else options.abortSignal.addEventListener('abort', externalAbortHandler, { once: true });
     }
@@ -229,11 +230,15 @@ class _DesignServiceP3Mixin {
    * 取消当前 P3 请求
    */
   cancelP1Request() {
-    if (this.designRequestAbortController) this.designRequestAbortController.abort();
+    if (this.designRequestAbortController) {
+      this.designRequestAbortController.abort(new Error('Design request cancelled'));
+    }
   }
 
   cancelP3Request() {
-    if (this._p3AbortController) this._p3AbortController.abort();
+    if (this._p3AbortController) {
+      this._p3AbortController.abort(new Error('Phase 3 cancelled'));
+    }
   }
 
   /**

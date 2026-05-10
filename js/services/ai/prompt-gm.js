@@ -105,7 +105,17 @@ class _AIServicePromptGmMixin {
         // 无自定义覆写时，检查是否为 state 工具需要 preview
         // 无自定义覆写时，走 toolRegistry 执行
         if (toolResult === undefined) {
-          if (window.toolRegistry?.has(call.name)) {
+          if (call.parseError) {
+            // adapter 已标记参数 JSON parse 失败：跳过执行，返回 [失败] 字符串让 LLM 重试。
+            toolResult = `[失败] 工具参数 JSON 格式错误：${call.parseError.message}。原始片段：${call.parseError.rawPreview}。请重新生成本次工具调用。`;
+            executionSucceeded = false;
+            toolExecutionErrors.push({
+              name: call.name,
+              args: {},
+              message: `parse error: ${call.parseError.message}`,
+              stack: null,
+            });
+          } else if (window.toolRegistry?.has(call.name)) {
             const registryResult = await window.toolRegistry.execute(call.name, call.args);
             toolResult = typeof registryResult === 'string'
               ? registryResult
